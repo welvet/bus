@@ -9,6 +9,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: make test
+      - run: node tests/test_controls.cjs
       - uses: arduino/setup-arduino-cli@v2
       - run: make setup
       - run: make compile

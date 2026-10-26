@@ -5,6 +5,7 @@ import select
 import socket
 import threading
 import time
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -47,18 +48,18 @@ class State:
 
 
 PAGE = b"""<!doctype html><meta name="viewport" content="width=device-width">
-<title>Bus motors</title><style>body{font:20px system-ui;max-width:650px;margin:40px auto;padding:16px}button{font:inherit;padding:18px;margin:6px}#stop{background:#fbb}</style>
-<h1>Bus motor test</h1><p>Each click runs a 0.6-second pulse. Lift wheels first.</p>
+<title>Bus motors</title><style>body{font:20px system-ui;max-width:650px;margin:40px auto;padding:16px}button{font:inherit;padding:18px;margin:6px}#stop{background:#fbb}button[data-m1]{touch-action:none;user-select:none}button:active{background:#ddd}</style>
+<h1>Bus motor test</h1><p>Hold Forward or Reverse to run. Release to stop. Lift wheels first.</p>
 <p role="status" aria-live="polite"><strong>Board:</strong> <span id="status">Checking...</span><br>
 <small id="board-details">Waiting for first contact</small></p>
 <p><strong>DRV8833:</strong> Not monitored<br><small>Current wiring cannot detect the driver or read faults.</small></p>
 <p><label for="speed">Speed (both motors): <output id="speed-value" for="speed">47%</output></label><br>
 <input id="speed" type="range" min="0" max="100" value="47" style="width:100%" oninput="document.querySelector('#speed-value').textContent=this.value+'%'"></p>
-<div>Motor 1 <button onclick="run(1,0)">Forward</button><button onclick="run(-1,0)">Reverse</button></div>
-<div>Motor 2 <button onclick="run(0,1)">Forward</button><button onclick="run(0,-1)">Reverse</button></div>
-<button id="stop" onclick="run(0,0)">Stop both</button><p id="error"></p>
-<script>async function run(m1,m2){const speed=Math.round(Number(document.querySelector('#speed').value)*255/100);m1*=speed;m2*=speed;try{let r=await fetch('/motors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({m1,m2})});if(!r.ok)throw Error(await r.text());document.querySelector('#error').textContent=''}catch(e){document.querySelector('#error').textContent=e.message}}
-async function updateStatus(){const status=document.querySelector('#status');const details=document.querySelector('#board-details');try{const r=await fetch('/status',{signal:AbortSignal.timeout(2000)});if(!r.ok)throw Error('Status unavailable');const s=await r.json();status.textContent=s.connected?'Connected over Wi-Fi':s.last_seen_seconds===null?'Waiting for Arduino':'Disconnected';status.style.color=s.connected?'#16733a':'#9b341c';details.textContent=s.last_seen_seconds===null?'No heartbeat received yet':s.board_ip+' | Last seen '+s.last_seen_seconds.toFixed(1)+'s ago'}catch(e){status.textContent='Server offline';status.style.color='#9b341c';details.textContent='Board connection unknown'}finally{setTimeout(updateStatus,500)}}updateStatus();</script>"""
+<div>Motor 1 <button data-m1="1" data-m2="0">Forward</button><button data-m1="-1" data-m2="0">Reverse</button></div>
+<div>Motor 2 <button data-m1="0" data-m2="1">Forward</button><button data-m1="0" data-m2="-1">Reverse</button></div>
+<button id="stop">Stop both</button><p id="error"></p>
+<script src="/controls.js"></script>
+<script>async function updateStatus(){const status=document.querySelector('#status');const details=document.querySelector('#board-details');try{const r=await fetch('/status',{signal:AbortSignal.timeout(2000)});if(!r.ok)throw Error('Status unavailable');const s=await r.json();status.textContent=s.connected?'Connected over Wi-Fi':s.last_seen_seconds===null?'Waiting for Arduino':'Disconnected';status.style.color=s.connected?'#16733a':'#9b341c';details.textContent=s.last_seen_seconds===null?'No heartbeat received yet':s.board_ip+' | Last seen '+s.last_seen_seconds.toFixed(1)+'s ago'}catch(e){status.textContent='Server offline';status.style.color='#9b341c';details.textContent='Board connection unknown'}finally{setTimeout(updateStatus,500)}}updateStatus();</script>"""
 
 
 def handler(state):
@@ -74,6 +75,9 @@ def handler(state):
         def do_GET(self):
             if self.path == "/":
                 self.respond(200, PAGE, "text/html; charset=utf-8")
+            elif self.path == "/controls.js":
+                self.respond(200, Path(__file__).with_name("controls.js").read_bytes(),
+                             "text/javascript; charset=utf-8")
             elif self.path == "/status":
                 self.respond(200, json.dumps(state.status()).encode())
             else:

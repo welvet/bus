@@ -12,13 +12,26 @@ spec.loader.exec_module(configure)
 
 
 class ProtocolTests(unittest.TestCase):
-    def test_pulse_and_expiry(self):
+    def test_command_lease_and_expiry(self):
         state = State()
         with patch("server.time.monotonic", return_value=100):
             state.command(120, -120)
             self.assertEqual(state.reply(b"7"), b"7 120 -120")
         with patch("server.time.monotonic", return_value=101):
             self.assertEqual(state.reply(b"8"), b"8 0 0")
+
+    def test_hold_refreshes_until_release_or_browser_loss(self):
+        state = State()
+        for tick in range(30):
+            with patch("server.time.monotonic", return_value=100 + tick / 10):
+                state.command(255, 0)
+                self.assertEqual(state.reply(b"1"), b"1 255 0")
+        with patch("server.time.monotonic", return_value=103):
+            state.command(0, 0)
+            self.assertEqual(state.reply(b"2"), b"2 0 0")
+            state.command(0, -255)
+        with patch("server.time.monotonic", return_value=104):
+            self.assertEqual(state.reply(b"3"), b"3 0 0")
 
     def test_boot_stopped_and_invalid_packets(self):
         state = State()
