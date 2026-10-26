@@ -1,4 +1,4 @@
-"""Local browser controls + authenticated LAN UDP replies; standard library only."""
+"""Local browser controls + LAN UDP replies; standard library only."""
 import json
 import os
 import select
@@ -22,17 +22,17 @@ class State:
             self.speeds = m1, m2
             self.until = time.monotonic() + 0.6
 
-    def reply(self, packet, token):
+    def reply(self, packet):
         try:
-            auth, seq = packet.decode("ascii").split()
-            if auth != token or not seq.isdecimal() or not 0 <= int(seq) <= 0xFFFFFFFF:
+            seq = packet.decode("ascii")
+            if not seq.isdecimal() or not 0 <= int(seq) <= 0xFFFFFFFF:
                 return None
         except (ValueError, UnicodeError):
             return None
         with self.lock:
             self.seen = time.monotonic()
             speeds = self.speeds if self.seen < self.until else (0, 0)
-        return f"{token} {seq} {speeds[0]} {speeds[1]}".encode()
+        return f"{seq} {speeds[0]} {speeds[1]}".encode()
 
 
 PAGE = b"""<!doctype html><meta name="viewport" content="width=device-width">
@@ -87,9 +87,6 @@ def handler(state):
 
 
 def main():
-    token = os.environ.get("BUS_TOKEN", "")
-    if not 16 <= len(token) <= 64 or not token.isascii() or not token.isalnum():
-        raise SystemExit("Set BUS_TOKEN to the same 16–64 ASCII letters/digits used when flashing")
     state = State()
     http = ThreadingHTTPServer(("127.0.0.1", int(os.environ.get("HTTP_PORT", "8000"))), handler(state))
     udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -100,7 +97,7 @@ def main():
         while True:
             if select.select([udp], [], [], 0.2)[0]:
                 packet, address = udp.recvfrom(256)
-                reply = state.reply(packet, token)
+                reply = state.reply(packet)
                 if reply is not None:
                     udp.sendto(reply, address)
     except KeyboardInterrupt:

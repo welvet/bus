@@ -19,16 +19,14 @@ make boards
 export WIFI_SSID='your-wifi'
 export WIFI_PASSWORD='your-password'
 export SERVER_IP=192.168.1.50  # laptop LAN IPv4; reserve it in your router
-export BUS_TOKEN=replaceWithYourOwnRandom32CharacterToken
 make install PORT=/dev/cu.usbmodemXXXX
 make server
 ```
 
-Open **http://localhost:8000** on that laptop. Use the same token for flashing
-and serving. No Python dependencies are needed. `SERVER_PORT` defaults to 8766
+Open **http://localhost:8000** on that laptop. No Python dependencies are needed. `SERVER_PORT` defaults to 8766
 (UDP); `HTTP_PORT` defaults to 8000. Allow Python UDP traffic through the laptop
 firewall; both devices must share a LAN without client isolation. HTTP binds
-only to localhost. This is a trusted-LAN prototype; traffic is not encrypted.
+only to localhost. This is a trusted-LAN prototype; UDP commands are unauthenticated and unencrypted.
 
 `make compile` builds without uploading; `make test` checks server/config behavior.
 Wi-Fi credentials and server IP are embedded during compilation in ignored

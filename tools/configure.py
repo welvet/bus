@@ -7,13 +7,11 @@ from pathlib import Path
 
 def configuration(env):
     values = {key: env.get(key, "") for key in
-              ("WIFI_SSID", "WIFI_PASSWORD", "SERVER_IP", "BUS_TOKEN")}
-    for key in ("WIFI_SSID", "SERVER_IP", "BUS_TOKEN"):
+              ("WIFI_SSID", "WIFI_PASSWORD", "SERVER_IP")}
+    for key in ("WIFI_SSID", "SERVER_IP"):
         if not values[key]:
             raise ValueError(f"Set {key} in the environment")
     ipaddress.IPv4Address(values["SERVER_IP"])
-    if not 16 <= len(values["BUS_TOKEN"]) <= 64 or not values["BUS_TOKEN"].isalnum() or not values["BUS_TOKEN"].isascii():
-        raise ValueError("BUS_TOKEN must contain 16–64 ASCII letters/digits")
     if len(values["WIFI_SSID"].encode()) > 32:
         raise ValueError("WIFI_SSID must be at most 32 bytes")
     port = int(env.get("SERVER_PORT") or "8766")

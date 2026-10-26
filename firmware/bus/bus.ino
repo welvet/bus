@@ -53,14 +53,12 @@ void loop() {
     lastPoll = now;
     sequence++;
     udp.beginPacket(server, SERVER_PORT);
-    udp.print(BUS_TOKEN);
-    udp.print(' ');
     udp.print(sequence);
     udp.endPacket();
   }
   int size = udp.parsePacket();
   if (size > 0) {
-    char packet[128], token[65], extra;
+    char packet[128], extra;
     unsigned long received;
     int m1, m2;
     bool sourceOK = udp.remoteIP() == server && udp.remotePort() == SERVER_PORT;
@@ -68,8 +66,8 @@ void loop() {
     if (count < 0) return;
     packet[count] = 0;
     if (sourceOK && size < (int)sizeof(packet) &&
-        sscanf(packet, "%64s %lu %d %d %c", token, &received, &m1, &m2, &extra) == 4 &&
-        strcmp(token, BUS_TOKEN) == 0 && received == sequence &&
+        sscanf(packet, "%lu %d %d %c", &received, &m1, &m2, &extra) == 3 &&
+        received == sequence &&
         now - lastPoll < 100 && abs(m1) <= 255 && abs(m2) <= 255) {
       lastReply = now;
       motor(5, 6, m1);

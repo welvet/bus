@@ -1,7 +1,7 @@
 PYTHON ?= python3
 ARDUINO_CLI ?= arduino-cli
 FQBN := arduino:renesas_uno:unor4wifi
-export WIFI_SSID WIFI_PASSWORD SERVER_IP SERVER_PORT BUS_TOKEN
+export WIFI_SSID WIFI_PASSWORD SERVER_IP SERVER_PORT
 
 .PHONY: help venv setup boards config compile install server test clean
 help:
