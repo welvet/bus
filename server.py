@@ -37,12 +37,14 @@ class State:
 
 PAGE = b"""<!doctype html><meta name="viewport" content="width=device-width">
 <title>Bus motors</title><style>body{font:20px system-ui;max-width:650px;margin:40px auto;padding:16px}button{font:inherit;padding:18px;margin:6px}#stop{background:#fbb}</style>
-<h1>Bus motor test</h1><p>Each click runs a 0.6-second pulse at PWM 120/255. Lift wheels first.</p>
+<h1>Bus motor test</h1><p>Each click runs a 0.6-second pulse. Lift wheels first.</p>
 <p id="status">Checking Arduino...</p>
-<div>Motor 1 <button onclick="run(120,0)">Forward</button><button onclick="run(-120,0)">Reverse</button></div>
-<div>Motor 2 <button onclick="run(0,120)">Forward</button><button onclick="run(0,-120)">Reverse</button></div>
+<p><label for="speed">Speed (both motors): <output id="speed-value" for="speed">47%</output></label><br>
+<input id="speed" type="range" min="0" max="100" value="47" style="width:100%" oninput="document.querySelector('#speed-value').textContent=this.value+'%'"></p>
+<div>Motor 1 <button onclick="run(1,0)">Forward</button><button onclick="run(-1,0)">Reverse</button></div>
+<div>Motor 2 <button onclick="run(0,1)">Forward</button><button onclick="run(0,-1)">Reverse</button></div>
 <button id="stop" onclick="run(0,0)">Stop both</button><p id="error"></p>
-<script>async function run(m1,m2){try{let r=await fetch('/motors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({m1,m2})});if(!r.ok)throw Error(await r.text());document.querySelector('#error').textContent=''}catch(e){document.querySelector('#error').textContent=e.message}}
+<script>async function run(m1,m2){const speed=Math.round(Number(document.querySelector('#speed').value)*255/100);m1*=speed;m2*=speed;try{let r=await fetch('/motors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({m1,m2})});if(!r.ok)throw Error(await r.text());document.querySelector('#error').textContent=''}catch(e){document.querySelector('#error').textContent=e.message}}
 setInterval(async()=>{try{let r=await fetch('/status');let s=await r.json();document.querySelector('#status').textContent=s.connected?'Arduino connected':'Waiting for Arduino'}catch(e){document.querySelector('#status').textContent='Server offline'}},500);</script>"""
 
 

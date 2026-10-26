@@ -2,7 +2,8 @@
 
 Arduino Uno R4 WiFi + DRV8833 + two N20 motors. The Arduino joins your
 2.4 GHz Wi-Fi and polls a Python server on your laptop over UDP.
-Browser buttons pulse either motor independently. Motors start stopped;
+Browser buttons pulse either motor independently. One speed slider (0–100%) sets
+both motors' speed for the next pulse. Motors start stopped;
 commands expire after 0.6 seconds and firmware stops after 350 ms without replies.
 
 ## Run
