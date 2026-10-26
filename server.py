@@ -55,6 +55,7 @@ PAGE = b"""<!doctype html><meta name="viewport" content="width=device-width">
 <p><strong>DRV8833:</strong> Not monitored<br><small>Current wiring cannot detect the driver or read faults.</small></p>
 <p><label for="speed">Speed (both motors): <output id="speed-value" for="speed">47%</output></label><br>
 <input id="speed" type="range" min="0" max="100" value="47" style="width:100%" oninput="document.querySelector('#speed-value').textContent=this.value+'%'"></p>
+<div>Both motors <button data-m1="1" data-m2="1">Forward</button><button data-m1="-1" data-m2="-1">Reverse</button></div>
 <div>Motor 1 <button data-m1="1" data-m2="0">Forward</button><button data-m1="-1" data-m2="0">Reverse</button></div>
 <div>Motor 2 <button data-m1="0" data-m2="1">Forward</button><button data-m1="0" data-m2="-1">Reverse</button></div>
 <button id="stop">Stop both</button><p id="error"></p>

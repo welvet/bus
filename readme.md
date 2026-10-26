@@ -2,7 +2,8 @@
 
 Arduino Uno R4 WiFi + DRV8833 + two N20 motors. The Arduino joins your
 2.4 GHz Wi-Fi and polls a Python server on your laptop over UDP.
-Click Forward/Reverse to run that motor continuously until Stop. Mouse, touch,
+Use Both motors to run both at the same speed/direction, or the individual rows
+to run one motor. Click Forward/Reverse to run continuously until Stop. Mouse, touch,
 and Space/Enter work. One speed slider (0–100%) sets both motors' speed. The UI shows Wi-Fi heartbeat status,
 board IP and time since last contact. DRV8833 presence and motor motion cannot be
 detected with the current wiring; driver status is shown as not monitored. Motors start stopped.
