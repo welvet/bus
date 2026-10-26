@@ -1,0 +1,19 @@
+name: Check
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: make test
+      - uses: arduino/setup-arduino-cli@v2
+      - run: make setup
+      - run: make compile
+        env:
+          WIFI_SSID: compile-test
+          WIFI_PASSWORD: placeholder
+          SERVER_IP: 192.168.1.50
+          BUS_TOKEN: placeholderTokenForCompileOnly123
