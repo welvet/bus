@@ -29,6 +29,23 @@ class ProtocolTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 state.command(value, 0)
 
+    def test_connection_status(self):
+        state = State()
+        with patch("server.time.monotonic", return_value=0.1):
+            self.assertFalse(state.status()["connected"])
+            self.assertIsNone(state.status()["last_seen_seconds"])
+        with patch("server.time.monotonic", return_value=100):
+            state.reply(b"bad", ("192.168.1.9", 8767))
+            self.assertIsNone(state.status()["board_ip"])
+            state.reply(b"1", ("192.168.1.9", 8767))
+            self.assertTrue(state.status()["connected"])
+            self.assertEqual(state.status()["board_ip"], "192.168.1.9")
+        with patch("server.time.monotonic", return_value=102):
+            status = state.status()
+            self.assertFalse(status["connected"])
+            self.assertEqual(status["last_seen_seconds"], 2)
+            self.assertEqual(status["driver_status"], "not_monitored")
+
     def test_configuration(self):
         env = dict(WIFI_SSID='network"name', WIFI_PASSWORD='p\\word', SERVER_IP="192.168.1.2")
         output = configure.configuration(env)

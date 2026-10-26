@@ -31,6 +31,10 @@ Solder headers or wires into the module's currently unsoldered through-holes.
 
 Module left, top to bottom: IN4, IN3, GND, VCC, IN2, IN1.
 Right: OUT1, OUT2, OUT3, OUT4, ULT (fault output, unconnected initially).
+The driver has no identification interface. Current wiring cannot detect its
+presence or motor motion. ULT could support fault reporting with an additional
+input wire and suitable pull-up after verifying the module circuit; an inactive
+fault signal alone would not prove that a driver is connected.
 **Verify J1 en/sleep on the actual board:** nSLEEP must be high to enable the chip;
 do not guess the solder-jumper orientation. See the module schematic or measure it.
 [TI datasheet](https://www.ti.com/lit/ds/symlink/drv8833.pdf).
