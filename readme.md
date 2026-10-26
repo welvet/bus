@@ -35,7 +35,11 @@ only to localhost. This is a trusted-LAN prototype; UDP commands are unauthentic
 Wi-Fi credentials and server IP are embedded during compilation in ignored
 `firmware/bus/config.h`. `.env` is ignored but is **not** automatically loaded.
 Never commit credentials or compiled firmware. Keep USB attached for initial power;
-serial diagnostics use 115200 baud. There is no automatic motor run on boot.
+serial diagnostics use 115200 baud. Logs show the backend address, accepted motor
+command changes (signed PWM from -255 to 255), and communication loss stops.
+These confirm output commands, not physical motor motion. View with
+`arduino-cli monitor --port YOUR_PORT --config baudrate=115200`;
+close the monitor before uploading. There is no automatic motor run on boot.
 
 See [hardware.md](hardware.md) before applying motor power. Wiring, jumper state,
 and physical operation still need to be checked on the actual hardware.

@@ -8,6 +8,8 @@ IPAddress server;
 unsigned long lastPoll = 0, lastReply = 0, lastJoin = 0;
 unsigned long sequence = 0;
 bool joined = false;
+bool serverResponding = false;
+int loggedM1 = 0, loggedM2 = 0;
 
 void motor(uint8_t a, uint8_t b, int speed) {
   // Remove power before changing direction; coast when speed is zero.
@@ -25,16 +27,30 @@ void setup() {
   stopMotors();
   Serial.begin(115200);
   server.fromString(SERVER_IP);
+  Serial.print("Backend: ");
+  Serial.print(server);
+  Serial.print(':');
+  Serial.println(SERVER_PORT);
   // WiFi.begin can block; motors are stopped before every reconnect.
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   lastJoin = millis();
 }
 void loop() {
   unsigned long now = millis();
-  if (now - lastReply > 350) stopMotors();
+  if (now - lastReply > 350) {
+    stopMotors();
+    if (serverResponding) {
+      serverResponding = false;
+      Serial.println("Backend timeout: motors stopped");
+    }
+  }
   if (WiFi.status() != WL_CONNECTED) {
     stopMotors();
-    if (joined) udp.stop();
+    if (joined) {
+      udp.stop();
+      Serial.println("WiFi disconnected: motors stopped");
+    }
+    serverResponding = false;
     joined = false;
     if (now - lastJoin >= 10000) {
       WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -72,6 +88,17 @@ void loop() {
       lastReply = now;
       motor(5, 6, m1);
       motor(9, 10, m2);
+      if (!serverResponding || m1 != loggedM1 || m2 != loggedM2) {
+        Serial.print("Backend command #");
+        Serial.print(received);
+        Serial.print(": motor1=");
+        Serial.print(m1);
+        Serial.print(" motor2=");
+        Serial.println(m2);
+        loggedM1 = m1;
+        loggedM2 = m2;
+      }
+      serverResponding = true;
     }
   }
 }
