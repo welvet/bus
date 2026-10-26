@@ -2,12 +2,12 @@
 
 Arduino Uno R4 WiFi + DRV8833 + two N20 motors. The Arduino joins your
 2.4 GHz Wi-Fi and polls a Python server on your laptop over UDP.
-Hold a Forward/Reverse button to run that motor; release to stop. Mouse, touch,
+Click Forward/Reverse to run that motor continuously until Stop. Mouse, touch,
 and Space/Enter work. One speed slider (0–100%) sets both motors' speed. The UI shows Wi-Fi heartbeat status,
 board IP and time since last contact. DRV8833 presence and motor motion cannot be
-detected with the current wiring; driver status is shown as not monitored. Motors start stopped;
-The browser refreshes commands while held. Release, focus loss, or hiding the page
-sends stop. If browser communication fails, commands expire after 0.6 seconds;
+detected with the current wiring; driver status is shown as not monitored. Motors start stopped.
+The browser refreshes commands while running. Stop, leaving/hiding the page, or
+connection loss stops the motors. Reconnecting does not restart them automatically. If browser communication fails, commands expire after 0.6 seconds;
 firmware stops after 350 ms without server replies.
 
 ## Run
@@ -34,7 +34,7 @@ firewall; both devices must share a LAN without client isolation. HTTP binds
 only to localhost. This is a trusted-LAN prototype; UDP commands are unauthenticated and unencrypted.
 
 `make compile` builds without uploading; `make test` checks server/config behavior.
-With Node.js installed, `node tests/test_controls.cjs` checks hold/release controls.
+With Node.js installed, `node tests/test_controls.cjs` checks start/stop controls.
 Wi-Fi credentials and server IP are embedded during compilation in ignored
 `firmware/bus/config.h`. `.env` is ignored but is **not** automatically loaded.
 Never commit credentials or compiled firmware. Keep USB attached for initial power;

@@ -20,7 +20,7 @@ class ProtocolTests(unittest.TestCase):
         with patch("server.time.monotonic", return_value=101):
             self.assertEqual(state.reply(b"8"), b"8 0 0")
 
-    def test_hold_refreshes_until_release_or_browser_loss(self):
+    def test_running_refreshes_until_stop_or_browser_loss(self):
         state = State()
         for tick in range(30):
             with patch("server.time.monotonic", return_value=100 + tick / 10):

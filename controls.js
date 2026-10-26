@@ -1,12 +1,10 @@
-// Refresh the command only while a direction button is held.
-let held = null;
+// Keep renewing the selected direction until Stop or connection/page loss.
 let direction = [0, 0];
 let timer = null;
 let sending = false;
 let pending = false;
 
 function stop() {
-  held = null;
   direction = [0, 0];
   clearInterval(timer);
   timer = null;
@@ -30,9 +28,8 @@ async function sendCommand() {
       if (!response.ok) throw Error('Motor command failed');
       document.querySelector('#error').textContent = '';
     } catch (error) {
-      document.querySelector('#error').textContent = 'Connection lost. Release and press again.';
-      if (held !== null) {
-        held = null;
+      document.querySelector('#error').textContent = 'Connection lost. Click a direction to restart.';
+      if (timer !== null) {
         direction = [0, 0];
         clearInterval(timer);
         timer = null;
@@ -43,39 +40,20 @@ async function sendCommand() {
   sending = false;
 }
 
-function start(button, id) {
-  if (held !== null) return;
-  held = id;
+function start(button) {
   direction = [Number(button.dataset.m1), Number(button.dataset.m2)];
+  if (timer === null) timer = setInterval(sendCommand, 100);
   sendCommand();
-  timer = setInterval(sendCommand, 100);
+}
+
+function connectionLost() {
+  if (timer !== null) stop();
 }
 
 for (const button of document.querySelectorAll('[data-m1]')) {
-  button.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || held !== null) return;
-    event.preventDefault();
-    button.setPointerCapture(event.pointerId);
-    start(button, event.pointerId);
-  });
-  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-    button.addEventListener(type, event => {
-      if (held === event.pointerId) stop();
-    });
-  }
-  button.addEventListener('keydown', event => {
-    if (event.key === ' ' || event.key === 'Enter') {
-      event.preventDefault();
-      if (!event.repeat) start(button, event.key);
-    }
-  });
-  button.addEventListener('keyup', event => {
-    if (held === event.key) { event.preventDefault(); stop(); }
-  });
-  button.addEventListener('blur', () => { if (held !== null) stop(); });
-  button.addEventListener('contextmenu', event => event.preventDefault());
+  button.addEventListener('click', () => start(button));
 }
 document.querySelector('#stop').addEventListener('click', stop);
-window.addEventListener('blur', stop);
 window.addEventListener('pagehide', stop);
+window.addEventListener('offline', stop);
 document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); });

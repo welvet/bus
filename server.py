@@ -49,7 +49,7 @@ class State:
 
 PAGE = b"""<!doctype html><meta name="viewport" content="width=device-width">
 <title>Bus motors</title><style>body{font:20px system-ui;max-width:650px;margin:40px auto;padding:16px}button{font:inherit;padding:18px;margin:6px}#stop{background:#fbb}button[data-m1]{touch-action:none;user-select:none}button:active{background:#ddd}</style>
-<h1>Bus motor test</h1><p>Hold Forward or Reverse to run. Release to stop. Lift wheels first.</p>
+<h1>Bus motor test</h1><p>Click Forward or Reverse to run. Click Stop to stop. Lift wheels first.</p>
 <p role="status" aria-live="polite"><strong>Board:</strong> <span id="status">Checking...</span><br>
 <small id="board-details">Waiting for first contact</small></p>
 <p><strong>DRV8833:</strong> Not monitored<br><small>Current wiring cannot detect the driver or read faults.</small></p>
@@ -59,7 +59,7 @@ PAGE = b"""<!doctype html><meta name="viewport" content="width=device-width">
 <div>Motor 2 <button data-m1="0" data-m2="1">Forward</button><button data-m1="0" data-m2="-1">Reverse</button></div>
 <button id="stop">Stop both</button><p id="error"></p>
 <script src="/controls.js"></script>
-<script>async function updateStatus(){const status=document.querySelector('#status');const details=document.querySelector('#board-details');try{const r=await fetch('/status',{signal:AbortSignal.timeout(2000)});if(!r.ok)throw Error('Status unavailable');const s=await r.json();status.textContent=s.connected?'Connected over Wi-Fi':s.last_seen_seconds===null?'Waiting for Arduino':'Disconnected';status.style.color=s.connected?'#16733a':'#9b341c';details.textContent=s.last_seen_seconds===null?'No heartbeat received yet':s.board_ip+' | Last seen '+s.last_seen_seconds.toFixed(1)+'s ago'}catch(e){status.textContent='Server offline';status.style.color='#9b341c';details.textContent='Board connection unknown'}finally{setTimeout(updateStatus,500)}}updateStatus();</script>"""
+<script>async function updateStatus(){const status=document.querySelector('#status');const details=document.querySelector('#board-details');try{const r=await fetch('/status',{signal:AbortSignal.timeout(2000)});if(!r.ok)throw Error('Status unavailable');const s=await r.json();if(!s.connected)connectionLost();status.textContent=s.connected?'Connected over Wi-Fi':s.last_seen_seconds===null?'Waiting for Arduino':'Disconnected';status.style.color=s.connected?'#16733a':'#9b341c';details.textContent=s.last_seen_seconds===null?'No heartbeat received yet':s.board_ip+' | Last seen '+s.last_seen_seconds.toFixed(1)+'s ago'}catch(e){connectionLost();status.textContent='Server offline';status.style.color='#9b341c';details.textContent='Board connection unknown'}finally{setTimeout(updateStatus,500)}}updateStatus();</script>"""
 
 
 def handler(state):
