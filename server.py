@@ -71,7 +71,7 @@ PAGE = b"""<!doctype html><meta name="viewport" content="width=device-width">
 <hr><h2>Servo (D3)</h2>
 <label for="angle">Angle: <output id="angle-value" for="angle">90</output>&deg;</label><br>
 <input id="angle" type="range" min="0" max="180" value="90" style="width:100%" oninput="document.querySelector('#angle-value').textContent=this.value">
-<button id="set-angle">Set angle</button><p id="servo-message" role="status">No angle sent yet.</p>
+<p id="servo-message" role="status">Slide to set the angle.</p>
 <script src="/controls.js"></script>
 <script>async function updateStatus(){const status=document.querySelector('#status');const details=document.querySelector('#board-details');try{const r=await fetch('/status',{signal:AbortSignal.timeout(2000)});if(!r.ok)throw Error('Status unavailable');const s=await r.json();if(!s.connected)connectionLost();status.textContent=s.connected?'Connected over Wi-Fi':s.last_seen_seconds===null?'Waiting for Arduino':'Disconnected';status.style.color=s.connected?'#16733a':'#9b341c';details.textContent=s.last_seen_seconds===null?'No heartbeat received yet':s.board_ip+' | Last seen '+s.last_seen_seconds.toFixed(1)+'s ago'}catch(e){connectionLost();status.textContent='Server offline';status.style.color='#9b341c';details.textContent='Board connection unknown'}finally{setTimeout(updateStatus,500)}}updateStatus();</script>"""
 

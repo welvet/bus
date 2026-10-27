@@ -7,6 +7,9 @@ const uint8_t INPUTS[] = {5, 6, 9, 10};
 WiFiUDP udp;
 Servo steering;
 const uint8_t SERVO_PIN = 3;
+// MG90S nominal 180-degree span; calibrate these for the actual servo.
+const int SERVO_MIN_US = 500;
+const int SERVO_MAX_US = 2500;
 int servoAngle = -1;
 IPAddress server;
 unsigned long lastPoll = 0, lastReply = 0, lastJoin = 0;
@@ -105,7 +108,7 @@ void loop() {
       }
       if (angle >= 0 && angle != servoAngle) {
         // No pulses at boot; enable only after an explicit angle command.
-        if (!steering.attached()) steering.attach(SERVO_PIN, 1000, 2000);
+        if (!steering.attached()) steering.attach(SERVO_PIN, SERVO_MIN_US, SERVO_MAX_US);
         steering.write(angle);
         servoAngle = angle;
         Serial.print("Servo D3 target angle: ");

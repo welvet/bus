@@ -53,10 +53,14 @@ and physical operation still need to be checked on the actual hardware.
 Signal: D3; red: external regulated 5 V; brown/black: common supply/Arduino GND.
 Run `make setup` again to install Servo 1.3.0, then `make install PORT=...` with
 Wi-Fi/server variables set. Restart `make server` and refresh the UI.
-Choose 0–180 on the angle slider and click Set angle. D3 starts sending pulses only
+Move the angle slider to set the servo immediately (0–180 nominal degrees). D3 starts sending pulses only
 after the first angle command. The servo holds its last target during Stop or
 network loss; motor Stop controls only the N20s. Remove power to release servo torque.
 Targets persist in server memory until restart and may be reapplied on board restart.
 The displayed target is commanded, not measured. Firmware uses a conservative
-1000–2000 microsecond pulse range: actual travel varies; angles need calibration.
+500–2500 microsecond pulse range, matching the 180° control specification in this
+[MG90S manufacturer datasheet](https://www.tinytronics.nl/product_files/000263_Data_Sheet_of_MG90S_Analog_Servo_Motor.pdf).
+[TowerPro's product page](https://towerpro.com.tw/product/mg90s-3/) does not specify
+pulse endpoints. Actual travel varies by unit: calibrate SERVO_MIN_US/SERVO_MAX_US
+in the sketch if necessary. Approach endpoints gradually; stop if it binds or buzzes.
 Start at 90 with the horn/linkage detached. Firmware and server must both be updated.
