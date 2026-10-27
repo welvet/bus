@@ -57,3 +57,19 @@ document.querySelector('#stop').addEventListener('click', stop);
 window.addEventListener('pagehide', stop);
 window.addEventListener('offline', stop);
 document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); });
+
+async function setServoAngle() {
+  const message = document.querySelector('#servo-message');
+  const angle = Number(document.querySelector('#angle').value);
+  try {
+    const response = await fetch('/servo', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({angle}), signal: AbortSignal.timeout(2000)
+    });
+    if (!response.ok) throw Error('Servo command failed');
+    message.textContent = 'Target sent: ' + angle + ' degrees (not position feedback).';
+  } catch (error) {
+    message.textContent = 'Could not send angle. Check the connection and try again.';
+  }
+}
+document.querySelector('#set-angle').addEventListener('click', setServoAngle);

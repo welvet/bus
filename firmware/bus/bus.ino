@@ -1,9 +1,13 @@
 #include <WiFiS3.h>
 #include <WiFiUdp.h>
+#include <Servo.h>
 #include "config.h"
 
 const uint8_t INPUTS[] = {5, 6, 9, 10};
 WiFiUDP udp;
+Servo steering;
+const uint8_t SERVO_PIN = 3;
+int servoAngle = -1;
 IPAddress server;
 unsigned long lastPoll = 0, lastReply = 0, lastJoin = 0;
 unsigned long sequence = 0;
@@ -76,13 +80,14 @@ void loop() {
   if (size > 0) {
     char packet[128], extra;
     unsigned long received;
-    int m1, m2;
+    int m1, m2, angle = -1;
     bool sourceOK = udp.remoteIP() == server && udp.remotePort() == SERVER_PORT;
     int count = udp.read(packet, sizeof(packet) - 1);
     if (count < 0) return;
     packet[count] = 0;
+    int fields = sscanf(packet, "%lu %d %d %d %c", &received, &m1, &m2, &angle, &extra);
     if (sourceOK && size < (int)sizeof(packet) &&
-        sscanf(packet, "%lu %d %d %c", &received, &m1, &m2, &extra) == 3 &&
+        (fields == 3 || fields == 4) && angle >= -1 && angle <= 180 &&
         received == sequence &&
         now - lastPoll < 100 && abs(m1) <= 255 && abs(m2) <= 255) {
       lastReply = now;
@@ -97,6 +102,14 @@ void loop() {
         Serial.println(m2);
         loggedM1 = m1;
         loggedM2 = m2;
+      }
+      if (angle >= 0 && angle != servoAngle) {
+        // No pulses at boot; enable only after an explicit angle command.
+        if (!steering.attached()) steering.attach(SERVO_PIN, 1000, 2000);
+        steering.write(angle);
+        servoAngle = angle;
+        Serial.print("Servo D3 target angle: ");
+        Serial.println(angle);
       }
       serverResponding = true;
     }

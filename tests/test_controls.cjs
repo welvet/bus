@@ -7,8 +7,9 @@ class Element {
 (async()=>{
  const forward=new Element({m1:'1',m2:'0'}),reverse=new Element({m1:'0',m2:'-1'}),slider=new Element(),stop=new Element(),error=new Element();
  const bothForward=new Element({m1:'1',m2:'1'}),bothReverse=new Element({m1:'-1',m2:'-1'});
+ const angle=new Element(),setAngle=new Element(),servoMessage=new Element();
  const document=new Element(),window=new Element(),commands=[],timers=new Set();
- document.querySelectorAll=()=>[forward,reverse,bothForward,bothReverse];document.querySelector=id=>({'#speed':slider,'#stop':stop,'#error':error}[id]);
+ document.querySelectorAll=()=>[forward,reverse,bothForward,bothReverse];document.querySelector=id=>({'#speed':slider,'#stop':stop,'#error':error,'#angle':angle,'#set-angle':setAngle,'#servo-message':servoMessage}[id]);
  let fail=false;
  const context={document,window,AbortSignal:{timeout:()=>({})},setInterval:fn=>{timers.add(fn);return fn},clearInterval:fn=>timers.delete(fn),fetch:async(url,options)=>{commands.push(JSON.parse(options.body));if(fail)throw Error('offline');return {ok:true}}};
  vm.createContext(context);vm.runInContext(fs.readFileSync('controls.js','utf8'),context);
@@ -28,5 +29,6 @@ class Element {
  forward.emit('click');await flush();context.connectionLost();await flush();assert.equal(last().m1,0);assert.equal(timers.size,0);
  fail=true;forward.emit('click');await flush();assert.equal(timers.size,0);assert.equal(last().m1,0);
  fail=false;await flush();assert.equal(timers.size,0);assert.equal(last().m1,0);
+ angle.value='135';setAngle.emit('click');await flush();assert.deepEqual(last(),{angle:135});
  console.log('Click-to-run, renewal, slider, direction, stop, page/connection loss and no automatic restart checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1});

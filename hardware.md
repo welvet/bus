@@ -48,6 +48,18 @@ Disconnect motor power if wiring or motion is unexpected.
 Power bank → PD trigger (verify bank supports 9 V) → parallel buck inputs:
 6 V → DRV8833/motors; regulated 5 V → servos/Arduino. All grounds common.
 Keep peak load within 18 W including converter losses. Verify Arduino 5 V pin powering
-and USB backfeed protection before simultaneous USB/external power. Servos are not
-implemented yet. Planned carrier: PLA+ in Plasticity with mounts, cable channels and
+and USB backfeed protection before simultaneous USB/external power. One MG90S is now supported on D3; the second is not implemented. Planned carrier: PLA+ in Plasticity with mounts, cable channels and
 removable connectors. No physical wiring or testing is assumed complete.
+
+## MG90S #1
+
+| Servo wire | Connection |
+|---|---|
+| Orange/yellow signal | Arduino D3 |
+| Red power | External regulated 5 V |
+| Brown/black ground | Supply GND and Arduino GND |
+
+Do not use DRV8833 outputs for servo power. Initial test: use a sufficient external
+5 V supply, not Arduino 5 V, and detach the linkage. D3 is reserved for the servo;
+D5/D6/D9/D10 motor wiring stays the same. The servo holds its commanded position
+on network loss and motor Stop. No servo presence or actual angle feedback exists.

@@ -16,26 +16,26 @@ class ProtocolTests(unittest.TestCase):
         state = State()
         with patch("server.time.monotonic", return_value=100):
             state.command(120, -120)
-            self.assertEqual(state.reply(b"7"), b"7 120 -120")
+            self.assertEqual(state.reply(b"7"), b"7 120 -120 -1")
         with patch("server.time.monotonic", return_value=101):
-            self.assertEqual(state.reply(b"8"), b"8 0 0")
+            self.assertEqual(state.reply(b"8"), b"8 0 0 -1")
 
     def test_running_refreshes_until_stop_or_browser_loss(self):
         state = State()
         for tick in range(30):
             with patch("server.time.monotonic", return_value=100 + tick / 10):
                 state.command(255, 0)
-                self.assertEqual(state.reply(b"1"), b"1 255 0")
+                self.assertEqual(state.reply(b"1"), b"1 255 0 -1")
         with patch("server.time.monotonic", return_value=103):
             state.command(0, 0)
-            self.assertEqual(state.reply(b"2"), b"2 0 0")
+            self.assertEqual(state.reply(b"2"), b"2 0 0 -1")
             state.command(0, -255)
         with patch("server.time.monotonic", return_value=104):
-            self.assertEqual(state.reply(b"3"), b"3 0 0")
+            self.assertEqual(state.reply(b"3"), b"3 0 0 -1")
 
     def test_boot_stopped_and_invalid_packets(self):
         state = State()
-        self.assertEqual(state.reply(b"1"), b"1 0 0")
+        self.assertEqual(state.reply(b"1"), b"1 0 0 -1")
         for packet in (b"wrong 1", b"\xff", b"-1", b"4294967296", b"1 2", b""):
             self.assertIsNone(state.reply(packet))
         for value in (True, 256, -256, 1.2, "12"):
@@ -58,6 +58,23 @@ class ProtocolTests(unittest.TestCase):
             self.assertFalse(status["connected"])
             self.assertEqual(status["last_seen_seconds"], 2)
             self.assertEqual(status["driver_status"], "not_monitored")
+
+    def test_servo_target_does_not_refresh_motor_lease(self):
+        state = State()
+        with patch("server.time.monotonic", return_value=100):
+            state.command(255, 255)
+            state.set_servo(90)
+            self.assertEqual(state.reply(b"1"), b"1 255 255 90")
+        with patch("server.time.monotonic", return_value=101):
+            state.set_servo(180)
+            self.assertEqual(state.reply(b"2"), b"2 0 0 180")
+            state.command(0, 0)
+            self.assertEqual(state.status()["servo_target"], 180)
+        for invalid in (-1, 181, True, 1.2, "90", None):
+            with self.assertRaises(ValueError):
+                state.set_servo(invalid)
+        state.set_servo(0)
+        self.assertEqual(state.reply(b"3"), b"3 0 0 0")
 
     def test_configuration(self):
         env = dict(WIFI_SSID='network"name', WIFI_PASSWORD='p\\word', SERVER_IP="192.168.1.2")

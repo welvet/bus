@@ -16,6 +16,7 @@ class State:
         self.until = 0.0
         self.seen = None
         self.board_ip = None
+        self.servo_angle = -1
 
     def command(self, m1, m2):
         if any(type(v) is not int or not -255 <= v <= 255 for v in (m1, m2)):
@@ -24,13 +25,20 @@ class State:
             self.speeds = m1, m2
             self.until = time.monotonic() + 0.6
 
+    def set_servo(self, angle):
+        if type(angle) is not int or not 0 <= angle <= 180:
+            raise ValueError("Servo angle must be an integer from 0 to 180")
+        with self.lock:
+            self.servo_angle = angle
+
     def status(self):
         with self.lock:
             age = None if self.seen is None else max(0, time.monotonic() - self.seen)
             return {"connected": age is not None and age < 1,
                     "board_ip": self.board_ip,
                     "last_seen_seconds": None if age is None else round(age, 1),
-                    "driver_status": "not_monitored"}
+                    "driver_status": "not_monitored",
+                    "servo_target": None if self.servo_angle < 0 else self.servo_angle}
 
     def reply(self, packet, address=None):
         try:
@@ -44,7 +52,8 @@ class State:
             if address is not None:
                 self.board_ip = address[0]
             speeds = self.speeds if self.seen < self.until else (0, 0)
-        return f"{seq} {speeds[0]} {speeds[1]}".encode()
+            angle = self.servo_angle
+        return f"{seq} {speeds[0]} {speeds[1]} {angle}".encode()
 
 
 PAGE = b"""<!doctype html><meta name="viewport" content="width=device-width">
@@ -59,6 +68,10 @@ PAGE = b"""<!doctype html><meta name="viewport" content="width=device-width">
 <div>Motor 1 <button data-m1="1" data-m2="0">Forward</button><button data-m1="-1" data-m2="0">Reverse</button></div>
 <div>Motor 2 <button data-m1="0" data-m2="1">Forward</button><button data-m1="0" data-m2="-1">Reverse</button></div>
 <button id="stop">Stop both</button><p id="error"></p>
+<hr><h2>Servo (D3)</h2>
+<label for="angle">Angle: <output id="angle-value" for="angle">90</output>&deg;</label><br>
+<input id="angle" type="range" min="0" max="180" value="90" style="width:100%" oninput="document.querySelector('#angle-value').textContent=this.value">
+<button id="set-angle">Set angle</button><p id="servo-message" role="status">No angle sent yet.</p>
 <script src="/controls.js"></script>
 <script>async function updateStatus(){const status=document.querySelector('#status');const details=document.querySelector('#board-details');try{const r=await fetch('/status',{signal:AbortSignal.timeout(2000)});if(!r.ok)throw Error('Status unavailable');const s=await r.json();if(!s.connected)connectionLost();status.textContent=s.connected?'Connected over Wi-Fi':s.last_seen_seconds===null?'Waiting for Arduino':'Disconnected';status.style.color=s.connected?'#16733a':'#9b341c';details.textContent=s.last_seen_seconds===null?'No heartbeat received yet':s.board_ip+' | Last seen '+s.last_seen_seconds.toFixed(1)+'s ago'}catch(e){connectionLost();status.textContent='Server offline';status.style.color='#9b341c';details.textContent='Board connection unknown'}finally{setTimeout(updateStatus,500)}}updateStatus();</script>"""
 
@@ -86,7 +99,7 @@ def handler(state):
 
         def do_POST(self):
             # JSON-only, no CORS: other websites cannot issue motor commands.
-            if self.path != "/motors":
+            if self.path not in ("/motors", "/servo"):
                 return self.respond(404, b'{}')
             if self.headers.get("Content-Type") != "application/json":
                 return self.respond(415, b'{}')
@@ -97,9 +110,12 @@ def handler(state):
                 if not 0 < size <= 128:
                     raise ValueError("Invalid body size")
                 body = json.loads(self.rfile.read(size))
-                state.command(body["m1"], body["m2"])
+                if self.path == "/servo":
+                    state.set_servo(body["angle"])
+                else:
+                    state.command(body["m1"], body["m2"])
             except (ValueError, KeyError, TypeError):
-                return self.respond(400, b'{"error":"Invalid motor command"}')
+                return self.respond(400, b'{"error":"Invalid command"}')
             self.respond(200, b'{"ok":true}')
     return Handler
 

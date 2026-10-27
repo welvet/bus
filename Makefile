@@ -11,6 +11,7 @@ venv:
 setup:
 	$(ARDUINO_CLI) core update-index
 	$(ARDUINO_CLI) core install arduino:renesas_uno
+	$(ARDUINO_CLI) lib install "Servo@1.3.0"
 boards:
 	$(ARDUINO_CLI) board list
 config:
