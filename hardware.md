@@ -39,16 +39,16 @@ fault signal alone would not prove that a driver is connected.
 do not guess the solder-jumper orientation. See the module schematic or measure it.
 [TI datasheet](https://www.ti.com/lit/ds/symlink/drv8833.pdf).
 
-First test: lift/unload motors, inspect common ground and J1, start the server,
-then pulse each motor separately. A low PWM pulse may not overcome gearbox friction.
+First test: lift/unload motors, inspect common ground and J1, open the board UI,
+then test both motors unloaded. A low PWM pulse may not overcome gearbox friction.
 Disconnect motor power if wiring or motion is unexpected.
 
-## Later
+## Current power arrangement
 
-Power bank → PD trigger (verify bank supports 9 V) → parallel buck inputs:
-6 V → DRV8833/motors; regulated 5 V → servos/Arduino. All grounds common.
-Keep peak load within 18 W including converter losses. Verify Arduino 5 V pin powering
-and USB backfeed protection before simultaneous USB/external power. One MG90S is now supported on D3; the second is not implemented. Planned carrier: PLA+ in Plasticity with mounts, cable channels and
+Power bank → PD trigger (verify 9 V) → Arduino VIN and both buck inputs.
+6 V buck → DRV8833/motors; 5 V buck → servo. All grounds common.
+Leave Arduino 5V pin unconnected to prevent USB feeding the external power chain.
+USB can be connected for programming. Keep peaks within 18 W including losses. One MG90S is now supported on D3; the second is not implemented. Planned carrier: PLA+ in Plasticity with mounts, cable channels and
 removable connectors. No physical wiring or testing is assumed complete.
 
 ## MG90S #1

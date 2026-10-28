@@ -1,85 +1,55 @@
-// Keep renewing the selected direction until Stop or connection/page loss.
-let direction = [0, 0];
-let timer = null;
-let sending = false;
-let pending = false;
-
-function stop() {
-  direction = [0, 0];
-  clearInterval(timer);
-  timer = null;
-  sendCommand();
-}
-
-async function sendCommand() {
-  pending = true;
+let direction = 0;
+let motorPending = false, servoPending = false, sending = false;
+const element = id => document.querySelector('#' + id);
+function stop() { direction = 0; motorPending = true; send(); }
+function start(value) { direction = value; motorPending = true; send(); }
+async function send() {
   if (sending) return;
   sending = true;
-  while (pending) {
-    pending = false;
-    const speed = Math.round(Number(document.querySelector('#speed').value) * 255 / 100);
-    const [m1, m2] = direction.map(value => value * speed);
+  while (motorPending || servoPending) {
+    const motor = motorPending;
+    if (motor) motorPending = false; else servoPending = false;
+    const value = motor ? direction * Number(element('speed').value) : Number(element('angle').value);
     try {
-      const response = await fetch('/motors', {
+      const response = await fetch(motor ? '/api/motor' : '/api/servo', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({m1, m2}), keepalive: true,
-        signal: AbortSignal.timeout(500)
+        body: JSON.stringify(value), keepalive: true, signal: AbortSignal.timeout(800)
       });
-      if (!response.ok) throw Error('Motor command failed');
-      document.querySelector('#error').textContent = '';
+      if (!response.ok) throw Error('Command rejected');
+      element('error').textContent = '';
     } catch (error) {
-      document.querySelector('#error').textContent = 'Connection lost. Click a direction to restart.';
-      if (timer !== null) {
-        direction = [0, 0];
-        clearInterval(timer);
-        timer = null;
-        pending = true;
-      }
+      element('error').textContent = 'Connection lost. Click a direction to restart.';
+      const wasRunning = direction !== 0;
+      direction = 0; servoPending = false; motorPending = wasRunning;
     }
   }
   sending = false;
 }
-
-function start(button) {
-  direction = [Number(button.dataset.m1), Number(button.dataset.m2)];
-  if (timer === null) timer = setInterval(sendCommand, 100);
-  sendCommand();
+element('forward').addEventListener('click', () => start(1));
+element('reverse').addEventListener('click', () => start(-1));
+element('stop').addEventListener('click', stop);
+element('speed').addEventListener('input', () => {
+  element('speed-value').textContent = element('speed').value + '%';
+  if (direction) { motorPending = true; send(); }
+});
+element('angle').addEventListener('input', () => {
+  element('angle-value').textContent = element('angle').value + '°';
+  servoPending = true; send();
+});
+setInterval(() => { if (direction) { motorPending = true; send(); } }, 250);
+function leave() { servoPending = false; stop(); }
+window.addEventListener('pagehide', leave);
+window.addEventListener('offline', leave);
+document.addEventListener('visibilitychange', () => { if (document.hidden) leave(); });
+async function info() {
+  try {
+    const response = await fetch('/api/info', {signal: AbortSignal.timeout(1000)});
+    if (!response.ok) throw Error('Offline');
+    const data = await response.json();
+    element('status').textContent = 'Connected · ' + data.ip + ' · ' + data.rssi + ' dBm';
+  } catch (error) {
+    element('status').textContent = 'Disconnected';
+    if (direction) leave();
+  } finally { setTimeout(info, 1000); }
 }
-
-function connectionLost() {
-  if (timer !== null) stop();
-}
-
-for (const button of document.querySelectorAll('[data-m1]')) {
-  button.addEventListener('click', () => start(button));
-}
-document.querySelector('#stop').addEventListener('click', stop);
-window.addEventListener('pagehide', stop);
-window.addEventListener('offline', stop);
-document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); });
-
-let servoSending = false;
-let servoPending = false;
-async function setServoAngle() {
-  servoPending = true;
-  if (servoSending) return;
-  servoSending = true;
-  const message = document.querySelector('#servo-message');
-  while (servoPending) {
-    servoPending = false;
-    const angle = Number(document.querySelector('#angle').value);
-    try {
-      const response = await fetch('/servo', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({angle}), signal: AbortSignal.timeout(2000)
-      });
-      if (!response.ok) throw Error('Servo command failed');
-      message.textContent = 'Target sent: ' + angle + ' degrees (not position feedback).';
-    } catch (error) {
-      servoPending = false;
-      message.textContent = 'Could not send angle. Check the connection and try again.';
-    }
-  }
-  servoSending = false;
-}
-document.querySelector('#angle').addEventListener('input', setServoAngle);
+info();

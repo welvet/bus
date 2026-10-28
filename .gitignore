@@ -4,3 +4,5 @@ __pycache__/
 .build/
 firmware/bus/config.h
 .DS_Store
+
+firmware/bus/web.h

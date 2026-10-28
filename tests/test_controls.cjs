@@ -1,40 +1,42 @@
-const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert/strict');
+const vm = require('node:vm'), fs = require('node:fs'), assert = require('node:assert/strict');
 class Element {
- constructor(dataset={}) {this.dataset=dataset;this.events={};this.value='100';}
- addEventListener(name, callback) {(this.events[name]??=[]).push(callback);}
- emit(name) {for(const callback of this.events[name]??[])callback({});}
+  constructor(value = '') { this.value = value; this.events = {}; }
+  addEventListener(type, callback) { this.events[type] = callback; }
+  emit(type) { this.events[type]?.(); }
 }
-(async()=>{
- const forward=new Element({m1:'1',m2:'0'}),reverse=new Element({m1:'0',m2:'-1'}),slider=new Element(),stop=new Element(),error=new Element();
- const bothForward=new Element({m1:'1',m2:'1'}),bothReverse=new Element({m1:'-1',m2:'-1'});
- const angle=new Element(),servoMessage=new Element();
- const document=new Element(),window=new Element(),commands=[],timers=new Set();
- document.querySelectorAll=()=>[forward,reverse,bothForward,bothReverse];document.querySelector=id=>({'#speed':slider,'#stop':stop,'#error':error,'#angle':angle,'#servo-message':servoMessage}[id]);
- let fail=false;
- const context={document,window,AbortSignal:{timeout:()=>({})},setInterval:fn=>{timers.add(fn);return fn},clearInterval:fn=>timers.delete(fn),fetch:async(url,options)=>{commands.push(JSON.parse(options.body));if(fail)throw Error('offline');return {ok:true}}};
- vm.createContext(context);vm.runInContext(fs.readFileSync('controls.js','utf8'),context);
- const flush=()=>new Promise(resolve=>setImmediate(resolve));const last=()=>commands.at(-1);
- forward.emit('click');await flush();assert.deepEqual(last(),{m1:255,m2:0});
- forward.emit('pointerup');forward.emit('blur');window.emit('blur');await flush();assert.equal(timers.size,1);
- for(let i=0;i<20;i++){for(const fn of timers)fn();await flush();assert.equal(last().m1,255);}
- slider.value='50';for(const fn of timers)fn();await flush();assert.equal(last().m1,128);
- reverse.emit('click');await flush();assert.deepEqual(last(),{m1:0,m2:-128});assert.equal(timers.size,1);
- bothForward.emit('click');await flush();assert.deepEqual(last(),{m1:128,m2:128});
- for(let i=0;i<10;i++){for(const fn of timers)fn();await flush();assert.deepEqual(last(),{m1:128,m2:128});}
- slider.value='100';for(const fn of timers)fn();await flush();assert.deepEqual(last(),{m1:255,m2:255});
- bothReverse.emit('click');await flush();assert.deepEqual(last(),{m1:-255,m2:-255});
- stop.emit('click');await flush();assert.deepEqual(last(),{m1:0,m2:0});assert.equal(timers.size,0);
- for(const reason of ['pagehide','offline']){forward.emit('click');await flush();window.emit(reason);await flush();assert.equal(last().m1,0);assert.equal(timers.size,0);}
- forward.emit('click');await flush();document.hidden=true;document.emit('visibilitychange');await flush();assert.equal(last().m1,0);
- forward.emit('click');await flush();context.connectionLost();await flush();assert.equal(last().m1,0);assert.equal(timers.size,0);
- fail=true;forward.emit('click');await flush();assert.equal(timers.size,0);assert.equal(last().m1,0);
- fail=false;await flush();assert.equal(timers.size,0);assert.equal(last().m1,0);
- angle.value='135';angle.emit('input');await flush();assert.deepEqual(last(),{angle:135});
- let release;
- context.fetch=async(url,options)=>{commands.push(JSON.parse(options.body));if(!release)await new Promise(resolve=>release=resolve);return {ok:true}};
- angle.value='10';angle.emit('input');await flush();
- angle.value='20';angle.emit('input');angle.value='180';angle.emit('input');
- assert.deepEqual(last(),{angle:10});release();await flush();assert.deepEqual(last(),{angle:180});
- angle.value='0';angle.emit('input');await flush();assert.deepEqual(last(),{angle:0});
- console.log('Click-to-run, renewal, slider, direction, stop, page/connection loss and no automatic restart checks passed');
-})().catch(error=>{console.error(error);process.exitCode=1});
+(async () => {
+  const ids = ['speed', 'speed-value', 'angle', 'angle-value', 'forward', 'reverse', 'stop', 'error', 'status'];
+  const elements = Object.fromEntries(ids.map(id => [id, new Element()]));
+  elements.speed.value = '47'; elements.angle.value = '90';
+  const document = new Element(), window = new Element(), timers = [], commands = [];
+  document.querySelector = id => elements[id.slice(1)];
+  let fail = false, delayServo = false, release;
+  const context = {document, window, AbortSignal: {timeout: () => ({})}, setInterval: fn => timers.push(fn), setTimeout: () => {},
+    fetch: async (url, options) => {
+      if (!options) return {ok: true, json: async () => ({ip: '192.168.1.20', rssi: -45, speed: 0})};
+      commands.push({url, value: JSON.parse(options.body)});
+      if (fail) throw Error('Offline');
+      if (delayServo && url === '/api/servo') { delayServo = false; await new Promise(resolve => release = resolve); }
+      return {ok: true};
+    }};
+  vm.createContext(context); vm.runInContext(fs.readFileSync('controls.js', 'utf8'), context);
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  const last = () => commands.at(-1);
+  await flush();
+  elements.forward.emit('click'); await flush(); assert.deepEqual(last(), {url: '/api/motor', value: 47});
+  for (let i = 0; i < 12; i++) { timers[0](); await flush(); assert.equal(last().value, 47); }
+  elements.speed.value = '100'; elements.speed.emit('input'); await flush(); assert.equal(last().value, 100);
+  elements.reverse.emit('click'); await flush(); assert.equal(last().value, -100);
+  elements.stop.emit('click'); await flush(); assert.equal(last().value, 0);
+  for (const type of ['offline', 'pagehide']) {
+    elements.forward.emit('click'); await flush(); window.emit(type); await flush(); assert.equal(last().value, 0);
+  }
+  elements.forward.emit('click'); await flush(); document.hidden = true; document.emit('visibilitychange'); await flush(); assert.equal(last().value, 0);
+  fail = true; elements.forward.emit('click'); await flush(); assert.equal(last().value, 0);
+  const count = commands.length; fail = false; timers[0](); await flush(); assert.equal(commands.length, count);
+  delayServo = true; elements.angle.value = '10'; elements.angle.emit('input'); await flush();
+  elements.angle.value = '20'; elements.angle.emit('input'); elements.angle.value = '180'; elements.angle.emit('input');
+  assert.deepEqual(last(), {url: '/api/servo', value: 10}); release(); await flush(); assert.equal(last().value, 180);
+  elements.angle.value = '0'; elements.angle.emit('input'); await flush(); assert.equal(last().value, 0);
+  console.log('UI direction, speed, servo coalescing, stop and connection-loss checks passed');
+})().catch(error => {console.error(error); process.exitCode = 1;});

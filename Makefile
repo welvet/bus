@@ -1,13 +1,11 @@
-PYTHON ?= python3
 ARDUINO_CLI ?= arduino-cli
+CXX ?= c++
 FQBN := arduino:renesas_uno:unor4wifi
-export WIFI_SSID WIFI_PASSWORD SERVER_IP SERVER_PORT
+export WIFI_SSID WIFI_PASSWORD
 
-.PHONY: help venv setup boards config compile install server test clean
+.PHONY: help setup boards config compile install monitor test clean
 help:
-	@echo "make venv | setup | boards | compile | install PORT=/dev/cu.usbmodem... | server | test"
-venv:
-	$(PYTHON) -m venv .venv
+	@echo "make setup | boards | compile | install PORT=... | monitor PORT=... | test"
 setup:
 	$(ARDUINO_CLI) core update-index
 	$(ARDUINO_CLI) core install arduino:renesas_uno
@@ -15,17 +13,19 @@ setup:
 boards:
 	$(ARDUINO_CLI) board list
 config:
-	@$(PYTHON) tools/configure.py
+	@sh tools/configure.sh
 compile: config
 	$(ARDUINO_CLI) compile --fqbn $(FQBN) --build-path .build firmware/bus
 install: compile
 	@test -n "$(PORT)" || (echo "Set PORT; run make boards to find it"; exit 1)
 	$(ARDUINO_CLI) upload --fqbn $(FQBN) --port "$(PORT)" --input-dir .build firmware/bus
-server: .venv/bin/python
-	.venv/bin/python server.py
-.venv/bin/python:
-	$(MAKE) venv
+monitor:
+	@test -n "$(PORT)" || (echo "Set PORT"; exit 1)
+	$(ARDUINO_CLI) monitor --port "$(PORT)" --config baudrate=115200
 test:
-	$(PYTHON) -m unittest discover -s tests -v
+	@mkdir -p .build
+	$(CXX) -std=c++11 -Wall -Wextra -Werror tests/control_test.cpp -o .build/control_test
+	.build/control_test
+	node tests/test_controls.cjs
 clean:
-	rm -rf .build firmware/bus/config.h
+	rm -rf .build firmware/bus/config.h firmware/bus/web.h
