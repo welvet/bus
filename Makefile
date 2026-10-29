@@ -1,5 +1,6 @@
 ARDUINO_CLI ?= arduino-cli
 CXX ?= c++
+CC ?= cc
 FQBN := arduino:renesas_uno:unor4wifi
 export WIFI_SSID WIFI_PASSWORD
 
@@ -32,9 +33,10 @@ clean:
 
 controller-build:
 	@mkdir -p .build
-	cd controller && go build -o ../.build/controller .
+	$(CC) -std=c11 -Wall -Wextra -Werror controller/main.c -framework IOKit -framework CoreFoundation -lm -o .build/controller
 controller: controller-build
-	.build/controller $(if $(BOARD_IP),-addr "$(BOARD_IP):5000",)
+	.build/controller $(if $(BOARD_IP),--addr "$(BOARD_IP):5000",)
 controller-test:
-	cd controller && go test ./...
-	cd controller && go vet ./...
+	@mkdir -p .build
+	$(CC) -std=c11 -Wall -Wextra -Werror controller/test.c -framework IOKit -framework CoreFoundation -lm -o .build/controller_test
+	.build/controller_test

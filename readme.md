@@ -45,9 +45,9 @@ contains credentials; never share it or compiled firmware. Trusted LAN only.
 
 ## Xbox controller on Mac
 
-One Go application file, `controller/main_darwin.go`, reads the paired Xbox through
-native IOKit HID callbacks. No browser, third-party modules or additional driver.
-Requires Go, cgo enabled and Apple's Command Line Tools (`xcode-select --install`).
+One plain C application file, `controller/main.c`, reads the paired Xbox through
+native IOKit HID callbacks. No Go, browser, third-party libraries or additional
+driver. Requires Apple's Command Line Tools (`xcode-select --install`).
 
 ```sh
 make controller                         # dry run: print values, send nothing
@@ -60,10 +60,10 @@ The stronger trigger wins at its own pressure (RT 80%, LT 30% gives +80%); equal
 pressures stop. Trigger inputs at or below 2% count as released. Center steering
 and release both triggers once after connection before transmission starts.
 Steering has a rescaled 12% deadzone. The sender repeats all three bytes
-at approximately 50 Hz even without input changes. On controller loss/Ctrl-C it
+at approximately 50 Hz (every 20 ms) even without input changes. On controller loss/Ctrl-C it
 sends zero motor speed once and stops transmitting; board timeout then detaches
 the servo. No address means no UDP socket. Logs do not confirm board reception:
 UDP has no reply. The native mapping was checked against Xbox BLE product 0x0B13.
 
-Advanced: `.build/controller -addr BOARD_IP:5000 -deadzone 0.12`.
-Use `-duration 10s` for a timed test. Keep other controller apps closed when driving.
+Advanced: `.build/controller --addr BOARD_IP:5000 --deadzone 0.12`.
+Use `--duration 10s` for a timed test. Keep other controller apps closed when driving.
