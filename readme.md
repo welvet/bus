@@ -14,44 +14,44 @@ make monitor PORT=/dev/cu.usbmodemXXXX
 ```
 
 Serial prints `TCP listening: IP:5000`. Connect directly to that IP on port 5000.
-The previous nginx HTTP routes and browser UI no longer apply. Close the monitor
-before flashing. Setup pins Arduino core 1.6.0 (bundled Arduino_FreeRTOS) and Servo
-1.3.0. On Apple Silicon the compiler may require Rosetta. `make test` uses native
-C++ only. UI changes from earlier versions are removed; no client is included.
+The old nginx HTTP routes do not apply. Close the monitor before flashing. Core
+1.6.0 includes Arduino_FreeRTOS; setup also installs Servo 1.3.0. On Apple Silicon
+the compiler may require Rosetta. `make test` uses native C++ only.
 
 ## Wire format
 
-Every message is exactly **two raw binary bytes**: `[type, value]`. No text,
-JSON, newline or length prefix. Value is signed int8, two's complement.
+Each message is exactly **three raw binary bytes**: `[1, angle, speed]`.
+No JSON, newline, separate ping or reply. Byte 1 is fixed `0x01`, reserved for
+future message types. Bytes 2/3 are signed int8, two's complement:
 
-| Type byte | Meaning | Value |
+| Byte | Meaning | Range |
 |---|---|---|
-| `0x01` | Both motors | -100…100 percent; 0 stops, negative reverses |
-| `0x02` | Servo offset | -90…90 degrees; 0 = center, -90/90 = nominal 0/180° |
-| `0x03` | Ping | Must be 0; board echoes `[0x03, 0x00]` |
+| 1 | Message type | Always 1 |
+| 2 | Servo offset | -90…90°; 0 = center; -90/90 = nominal 0/180° |
+| 3 | Both motors' speed | -100…100%; 0 stops motors, negative reverses |
 
-Examples: `01 64` = full forward; `01 9C` = full reverse; `02 00` = servo center.
-Hex `02 A6`/`02 5A` select servo extremes. Byte value 180 is **not** servo 180°.
-Motor/servo commands have no reply. TCP handles ordering/delivery; parsing handles
-fragmented and combined messages. Unknown types/out-of-range values close the socket.
-Only one controller is accepted; extras are refused while it is connected.
+Examples (hex): `01 00 64` = centered servo/full forward;
+`01 A6 9C` = nominal 0°/full reverse; `01 00 00` = center/stop motors.
+Byte value 180 is **not** servo 180°; use signed +90.
 
-Send ping immediately after connecting, then every **250 ms**, independently of
-motor/servo activity. After **750 ms** without a valid ping, outputs stop and the
-connection is closed. Ordinary commands do not refresh the heartbeat. The higher
-priority actuator task checks the deadline every 5 ms, even if a modem call stalls;
-the network task closes its socket when it can run. Detected TCP closure or Wi-Fi
-loss also disables outputs. The actuator watchdog latches a failed session off;
-late messages cannot revive it. Reconnect and issue fresh commands to resume.
+Send the latest complete target as often as desired, always less than **1 second**
+apart, even when unchanged. Every valid full message refreshes the timeout.
+The board stores both targets and only changes each output when that target
+changes. Split TCP messages and multiple messages in one read are supported.
+Incomplete bytes do not refresh the timer. Invalid types/values close the socket.
 
-Motor commands persist while the session stays healthy. Servo pulses start only
-on its first command and are detached on disconnect/timeout; torque then releases
-(the servo may move under load). New sessions start with motors stopped and servo
-disabled. Servo uses 500–2500 µs: calibrate endpoints for the actual unit and test
-with linkage detached. No motor-motion or servo-position feedback exists.
+After **1000 ms** without a complete valid message, motors stop, servo pulses
+detach, and the connection closes. Detected TCP closure/Wi-Fi loss does the same.
+The actuator task checks the deadline every 5 ms independently of modem calls;
+network socket closure follows when its task can run. A timed-out session stays
+disabled despite late messages: reconnect and send a fresh target. New connections
+start with motors stopped/servo disabled and must send within one second. Only
+one controller is accepted; extras are refused.
 
-Wi-Fi/S3 modem, TCP, client buffering and scheduling still add latency; no hardware
-latency measurement has been made. A future client should disable Nagle and avoid
-queueing old targets. Trusted LAN only: no authentication/TLS or port forwarding.
-See [hardware.md](hardware.md). Generated config.h/build output contain credentials;
-do not share them. `.env` is not loaded automatically.
+Servo detachment releases torque (the mechanism may move under load). Servo
+pulses start on the first complete command. Pulse span is 500–2500 µs: calibrate
+for the actual servo and test with linkage detached. There is no position feedback.
+Wi-Fi/S3 modem, TCP and scheduling add latency; hardware latency is unmeasured.
+A future client should disable Nagle and avoid buffering old targets. Trusted LAN
+only: no authentication/TLS/port forwarding. See [hardware.md](hardware.md).
+Never share generated config.h or firmware binaries containing credentials.

@@ -70,7 +70,7 @@ void networkTask(void *) {
     if (session.target.active && (watchdog || bus::expired(session.target, now))) {
       session.close(); publish(session); // Stop before any potentially blocking modem call.
       client.stop();
-      Serial.println("Heartbeat timeout: connection closed; outputs disabled");
+      Serial.println("Command timeout: connection closed; outputs disabled");
     }
     bool checkLink = firstJoin || uint32_t(now - lastWiFiCheck) >= 100;
     if (checkLink) {
@@ -118,13 +118,8 @@ void networkTask(void *) {
               Serial.println("Invalid/stale TCP message: connection closed");
               break;
             }
-            if (result != bus::Result::Partial) publish(session);
-            if (result == bus::Result::Ping) {
-              const uint8_t pong[] = {bus::PING, 0};
-              if (client.write(pong, sizeof(pong)) != sizeof(pong)) {
-                session.close(); publish(session); client.stop(); break;
-              }
-            }
+            if (result == bus::Result::Command) publish(session);
+
           }
         }
       }
