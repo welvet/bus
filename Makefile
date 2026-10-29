@@ -40,3 +40,13 @@ controller-test:
 	@mkdir -p .build
 	$(CC) -std=c11 -Wall -Wextra -Werror controller/test.c -framework IOKit -framework CoreFoundation -lm -o .build/controller_test
 	.build/controller_test
+
+.PHONY: controller-install controller-start controller-stop controller-status
+controller-install: controller-build
+	BOARD_IP="$(BOARD_IP)" sh tools/controller-service.sh install
+controller-start:
+	sh tools/controller-service.sh start
+controller-stop:
+	sh tools/controller-service.sh stop
+controller-status:
+	sh tools/controller-service.sh status

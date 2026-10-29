@@ -158,7 +158,8 @@ static int triggerSpeed(double left, double right) {
 }
 
 static void commandBytes(uint8_t bytes[3], int angle, int speed) {
-    bytes[0] = 1; bytes[1] = (uint8_t)(int8_t)angle; bytes[2] = (uint8_t)(int8_t)speed;
+    // Current motor mounting requires the opposite electrical direction.
+    bytes[0] = 1; bytes[1] = (uint8_t)(int8_t)angle; bytes[2] = (uint8_t)(int8_t)(-speed);
 }
 
 static int sendCommand(int socket, int angle, int speed) {
@@ -204,14 +205,16 @@ static bool parseNumber(const char *text, bool duration, double *out) {
 int main(int argc, char **argv) {
     const char *address = NULL;
     double deadzone = 0.12, duration = 0;
+    bool quiet = false;
     for (int i = 1; i < argc; ++i) {
         const char *option = argv[i];
         if (*option != '-') { fprintf(stderr, "Expected an option: %s\n", option); return 1; }
         while (*option == '-') ++option;
         if (!strcmp(option, "help") || !strcmp(option, "h")) {
-            puts("controller [--addr HOST:5000] [--deadzone 0.12] [--duration 10s]\nNo address = dry run, no UDP packets.");
+            puts("controller [--addr HOST:5000] [--deadzone 0.12] [--duration 10s] [--quiet]\nNo address = dry run, no UDP packets.");
             return 0;
         }
+        if (!strcmp(option, "quiet")) { quiet = true; continue; }
         if (++i >= argc) { fprintf(stderr, "Missing value for %s\n", option); return 1; }
         if (!strcmp(option, "addr")) address = argv[i];
         else if (!strcmp(option, "deadzone") && parseNumber(argv[i], false, &deadzone)) {}
@@ -264,7 +267,7 @@ int main(int argc, char **argv) {
             if (sendCommand(fd, angle, speed)) { perror("UDP send"); status = 1; break; }
             lastAngle = angle;
         }
-        if (now - lastPrint >= 0.25) {
+        if (!quiet && now - lastPrint >= 0.25) {
             printf("angle=%+4d speed=%+4d LT=%3.0f%% RT=%3.0f%% ready=%d\n",
                 angle, speed, state.leftTrigger * 100, state.rightTrigger * 100, ready);
             lastPrint = now;

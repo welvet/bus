@@ -56,6 +56,7 @@ make controller-test
 ```
 
 Left stick X steers (-90 to 90). Right trigger drives forward; left drives reverse.
+The sender reverses the wire speed sign to match the current motor mounting.
 The stronger trigger wins at its own pressure (RT 80%, LT 30% gives +80%); equal
 pressures stop. Trigger inputs at or below 2% count as released. Center steering
 and release both triggers once after connection before transmission starts.
@@ -67,3 +68,17 @@ UDP has no reply. The native mapping was checked against Xbox BLE product 0x0B13
 
 Advanced: `.build/controller --addr BOARD_IP:5000 --deadzone 0.12`.
 Use `--duration 10s` for a timed test. Keep other controller apps closed when driving.
+
+### Run in background (macOS)
+
+`make controller-install BOARD_IP=192.168.8.142` installs/starts a user LaunchAgent.
+It runs at login and restarts automatically after exit, with a 5-second restart
+throttle. Center steering and release triggers after each restart to enable control.
+The installed binary lives in `~/Library/Application Support/Bus`, so `make clean`
+does not remove it. Re-run install after controller code changes to update it.
+
+Use `make controller-stop`, `make controller-start`, or `make controller-status`.
+Stop unloads it until explicitly started or the next login. Logs are in
+`~/Library/Logs/Bus/controller.log` and `controller-error.log`. The service uses
+`--quiet`: connection/error logs only, avoiding continuous joystick-value logs.
+Do not run a foreground sender at the same time as the service.

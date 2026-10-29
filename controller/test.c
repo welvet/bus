@@ -14,8 +14,11 @@ int main(void) {
     assert(triggerSpeed(0.01,0.02)==0);
     assert(triggerSpeed(-1,2)==100);
     uint8_t bytes[3]; commandBytes(bytes,-90,-100);
-    assert(bytes[0]==1 && bytes[1]==166 && bytes[2]==156);
-    commandBytes(bytes,90,100); assert(bytes[1]==90 && bytes[2]==100);
+    assert(bytes[0]==1 && bytes[1]==166 && bytes[2]==100);
+    commandBytes(bytes,90,100); assert(bytes[1]==90 && bytes[2]==156);
+    commandBytes(bytes,0,0); assert(bytes[2]==0);
+    commandBytes(bytes,0,triggerSpeed(0.3,0.8)); assert((int8_t)bytes[2]==-80);
+    commandBytes(bytes,0,triggerSpeed(0.8,0.3)); assert((int8_t)bytes[2]==80);
     double value;
     assert(parseNumber("10s",true,&value) && value==10);
     assert(parseNumber("20ms",true,&value) && value==0.02);
