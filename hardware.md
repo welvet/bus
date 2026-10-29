@@ -39,7 +39,7 @@ fault signal alone would not prove that a driver is connected.
 do not guess the solder-jumper orientation. See the module schematic or measure it.
 [TI datasheet](https://www.ti.com/lit/ds/symlink/drv8833.pdf).
 
-First test: lift/unload motors, inspect common ground and J1, connect a TCP controller,
+First test: lift/unload motors, inspect common ground and J1, connect a UDP sender,
 then test both motors unloaded. No client is currently included. A low PWM pulse may not overcome gearbox friction.
 Disconnect motor power if wiring or motion is unexpected.
 
@@ -61,5 +61,5 @@ removable connectors. No physical wiring or testing is assumed complete.
 
 Do not use DRV8833 outputs for servo power. Initial test: use a sufficient external
 5 V supply, not Arduino 5 V, and detach the linkage. D3 is reserved for the servo;
-D5/D6/D9/D10 motor wiring stays the same. The servo holds its commanded position
-on network loss and motor Stop. No servo presence or actual angle feedback exists.
+D5/D6/D9/D10 motor wiring stays the same. After one second without valid UDP commands, motors stop and servo pulses detach.
+A zero-speed command keeps the servo at the angle in that command. No servo presence or actual angle feedback exists.

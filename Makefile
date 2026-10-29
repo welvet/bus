@@ -24,7 +24,8 @@ monitor:
 	$(ARDUINO_CLI) monitor --port "$(PORT)" --config baudrate=115200
 test:
 	@mkdir -p .build
-	$(CXX) -std=c++11 -Wall -Wextra -Werror tests/control_test.cpp -o .build/control_test
+	sed '/^#include /d' firmware/bus/bus.ino > .build/sketch.inc
+	$(CXX) -std=c++11 -Wall -Wextra -Werror tests/firmware_test.cpp -o .build/control_test
 	.build/control_test
 clean:
 	rm -rf .build firmware/bus/config.h firmware/bus/web.h
