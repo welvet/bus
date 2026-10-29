@@ -3,9 +3,9 @@ CXX ?= c++
 FQBN := arduino:renesas_uno:unor4wifi
 export WIFI_SSID WIFI_PASSWORD
 
-.PHONY: help setup boards config compile install monitor test clean
+.PHONY: help setup boards config compile install monitor test clean controller controller-build controller-test
 help:
-	@echo "make setup | boards | compile | install PORT=... | monitor PORT=... | test"
+	@echo "make setup | boards | compile | install PORT=... | monitor PORT=... | test | controller [BOARD_IP=...]"
 setup:
 	$(ARDUINO_CLI) core update-index
 	$(ARDUINO_CLI) core install arduino:renesas_uno@1.6.0
@@ -29,3 +29,12 @@ test:
 	.build/control_test
 clean:
 	rm -rf .build firmware/bus/config.h firmware/bus/web.h
+
+controller-build:
+	@mkdir -p .build
+	cd controller && go build -o ../.build/controller .
+controller: controller-build
+	.build/controller $(if $(BOARD_IP),-addr "$(BOARD_IP):5000",)
+controller-test:
+	cd controller && go test ./...
+	cd controller && go vet ./...

@@ -4,7 +4,7 @@ Uno R4 WiFi, one firmware file: `firmware/bus/bus.ino`. Wi-Fi connects once in
 setup; no reconnect/check loop. Restart the board after connection failure/loss.
 Two FreeRTOS tasks: network receives UDP and handles timeout; actuator receives
 one latest `Target` struct and writes only changed outputs. No classes, HTTP/UI,
-client, Python, ping or replies.
+Python, ping or replies. A native Mac Xbox sender is available below.
 
 ```sh
 make setup
@@ -42,3 +42,28 @@ Servo starts disabled; timeout detaches pulses and releases torque. See
 installed by setup. `make test` exercises this sketch with host mocks; firmware
 compilation and physical operation need separate verification. Generated config.h
 contains credentials; never share it or compiled firmware. Trusted LAN only.
+
+## Xbox controller on Mac
+
+One Go application file, `controller/main_darwin.go`, reads the paired Xbox through
+native IOKit HID callbacks. No browser, third-party modules or additional driver.
+Requires Go, cgo enabled and Apple's Command Line Tools (`xcode-select --install`).
+
+```sh
+make controller                         # dry run: print values, send nothing
+make controller BOARD_IP=192.168.8.142   # live UDP control, once ready
+make controller-test
+```
+
+Left stick X steers (-90 to 90). Right trigger drives forward; left drives reverse.
+The stronger trigger wins at its own pressure (RT 80%, LT 30% gives +80%); equal
+pressures stop. Trigger inputs at or below 2% count as released. Center steering
+and release both triggers once after connection before transmission starts.
+Steering has a rescaled 12% deadzone. The sender repeats all three bytes
+at approximately 50 Hz even without input changes. On controller loss/Ctrl-C it
+sends zero motor speed once and stops transmitting; board timeout then detaches
+the servo. No address means no UDP socket. Logs do not confirm board reception:
+UDP has no reply. The native mapping was checked against Xbox BLE product 0x0B13.
+
+Advanced: `.build/controller -addr BOARD_IP:5000 -deadzone 0.12`.
+Use `-duration 10s` for a timed test. Keep other controller apps closed when driving.
