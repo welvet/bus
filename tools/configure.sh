@@ -14,11 +14,3 @@ BEGIN {
  print "#define WIFI_PASSWORD " quote(ENVIRON["WIFI_PASSWORD"])
 }' > .build/config.h
 mv .build/config.h firmware/bus/config.h
-{
-  printf '#pragma once\nstatic const char INDEX_HTML[] = R"BUSHTML(\n'
-  cat index.html
-  printf '\n)BUSHTML";\nstatic const char CONTROLS_JS[] = R"BUSJS(\n'
-  cat controls.js
-  printf '\n)BUSJS";\n'
-} > .build/web.h
-mv .build/web.h firmware/bus/web.h

@@ -39,8 +39,8 @@ fault signal alone would not prove that a driver is connected.
 do not guess the solder-jumper orientation. See the module schematic or measure it.
 [TI datasheet](https://www.ti.com/lit/ds/symlink/drv8833.pdf).
 
-First test: lift/unload motors, inspect common ground and J1, open the board UI,
-then test both motors unloaded. A low PWM pulse may not overcome gearbox friction.
+First test: lift/unload motors, inspect common ground and J1, connect a TCP controller,
+then test both motors unloaded. No client is currently included. A low PWM pulse may not overcome gearbox friction.
 Disconnect motor power if wiring or motion is unexpected.
 
 ## Current power arrangement
