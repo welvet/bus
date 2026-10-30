@@ -8,20 +8,20 @@ int main(void) {
     assert(steeringAngle(0.56,0.12)==45 && steeringAngle(-0.56,0.12)==-45);
     assert(steeringAngle(2,0.12)==90);
     assert(triggerSpeed(0,0)==0);
-    assert(triggerSpeed(0.3,0.8)==69 && triggerSpeed(0.8,0.3)==-69);
+    assert(triggerSpeed(0.3,0.8)==74 && triggerSpeed(0.8,0.3)==-74);
     assert(triggerSpeed(1,1)==0 && triggerSpeed(0.5,0.5)==0);
     assert(triggerSpeed(0,1)==100 && triggerSpeed(1,0)==-100);
     assert(triggerSpeed(0.01,0.02)==0);
     assert(triggerSpeed(-1,2)==100);
-    assert(triggerSpeed(0,0.02001)==15 && triggerSpeed(0.02001,0)==-15);
-    assert(triggerSpeed(0,0.51)==36 && triggerSpeed(0.51,0)==-36);
+    assert(triggerSpeed(0,0.02001)==30 && triggerSpeed(0.02001,0)==-30);
+    assert(triggerSpeed(0,0.51)==48 && triggerSpeed(0.51,0)==-48);
     int previousSpeed = 0;
     for (int step = 0; step <= 1000; step++) {
         double pressure = step / 1000.0;
         int speed = triggerSpeed(0,pressure);
         assert(speed >= previousSpeed && speed <= 100);
         assert(triggerSpeed(pressure,0) == -speed);
-        assert(pressure <= 0.02 ? speed == 0 : speed >= 15);
+        assert(pressure <= 0.02 ? speed == 0 : speed >= 30);
         previousSpeed = speed;
     }
     assert(trimmedAngle(0,0,false)==0);
@@ -54,8 +54,8 @@ int main(void) {
     assert(bytes[0]==1 && bytes[1]==166 && bytes[2]==100);
     commandBytes(bytes,90,100); assert(bytes[1]==90 && bytes[2]==156);
     commandBytes(bytes,0,0); assert(bytes[2]==0);
-    commandBytes(bytes,0,triggerSpeed(0.3,0.8)); assert((int8_t)bytes[2]==-69);
-    commandBytes(bytes,0,triggerSpeed(0.8,0.3)); assert((int8_t)bytes[2]==69);
+    commandBytes(bytes,0,triggerSpeed(0.3,0.8)); assert((int8_t)bytes[2]==-74);
+    commandBytes(bytes,0,triggerSpeed(0.8,0.3)); assert((int8_t)bytes[2]==74);
     state.calibrateDown = 0; steeringCalibrationRequested = 0;
     calibrationButton(1); assert(steeringCalibrationRequested == 1);
     steeringCalibrationRequested = 0; calibrationButton(1); assert(steeringCalibrationRequested == 0);

@@ -171,7 +171,7 @@ static int steeringAngle(double value, double deadzone) {
 static int triggerSpeed(double left, double right) {
     // Both directions share the measured minimum output needed to start moving.
     const double released = 0.02;
-    const int minimum = 15;
+    const int minimum = 30;
     left = fmax(0, fmin(1, left)); right = fmax(0, fmin(1, right));
     if (left <= released) left = 0;
     if (right <= released) right = 0;

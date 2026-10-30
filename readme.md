@@ -99,5 +99,5 @@ gives 25% of the available steering travel on that side.
 Triggers are unaffected. Calibration stays on the Mac; no firmware change.
 
 Trigger motor output: released (up to 2%) stops; above that, full trigger travel
-uses a quadratic curve from a shared 15% minimum running output to 100% in
-either direction. Half usable travel gives 36% output for finer slow control.
+uses a quadratic curve from a shared 30% minimum running output to 100% in
+either direction. Half usable travel gives 48% output for finer slow control.
