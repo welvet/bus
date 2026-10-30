@@ -4,9 +4,15 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
+#include <signal.h>
+
+static volatile sig_atomic_t steeringCalibrationRequested;
+static volatile sig_atomic_t steeringResetRequested;
 
 typedef struct {
     int connected;
+    int calibrateDown;
+    int resetDown;
     double steering;
     double leftTrigger;
     double rightTrigger;
@@ -31,6 +37,16 @@ static double triggerValue(IOHIDElementRef element, CFIndex value) {
     return (double)(value - low) / (high - low);
 }
 
+static void calibrationButton(int pressed) {
+    if (pressed && !state.calibrateDown) steeringCalibrationRequested = 1;
+    state.calibrateDown = pressed != 0;
+}
+
+static void resetButton(int pressed) {
+    if (pressed && !state.resetDown) steeringResetRequested = 1;
+    state.resetDown = pressed != 0;
+}
+
 static void inputValue(void *context, IOReturn result, void *sender, IOHIDValueRef value) {
     (void)context; (void)sender;
     if (result != kIOReturnSuccess || !controller) return;
@@ -38,6 +54,9 @@ static void inputValue(void *context, IOReturn result, void *sender, IOHIDValueR
     if (IOHIDElementGetDevice(element) != controller) return;
     uint32_t page = IOHIDElementGetUsagePage(element), usage = IOHIDElementGetUsage(element);
     CFIndex raw = IOHIDValueGetIntegerValue(value);
+    // Xbox BLE Y (top face button, equivalent position to Triangle).
+    if (page == 9 && usage == 5) calibrationButton(raw != 0);
+    if (page == 9 && usage == 2) resetButton(raw != 0);
     if (page == 1 && usage == 0x30) state.steering = axisValue(element, raw);
     if (page == 2 && usage == 0xc5) state.leftTrigger = triggerValue(element, raw);
     if (page == 2 && usage == 0xc4) state.rightTrigger = triggerValue(element, raw);
@@ -135,6 +154,7 @@ static void stopController(void) {
 
 static volatile sig_atomic_t quitting;
 static void stopSignal(int signal) { (void)signal; quitting = 1; }
+static void calibrateSteeringSignal(int signal) { (void)signal; steeringCalibrationRequested = 1; }
 
 static double monotonicSeconds(void) {
     struct timespec now;
@@ -155,6 +175,38 @@ static int triggerSpeed(double left, double right) {
     if (right > left) return (int)round(right * 100);
     if (left > right) return -(int)round(left * 100);
     return 0;
+}
+
+static int trimmedAngle(int stick, int trim, bool centering) {
+    // Mechanical endpoints stay fixed when the calibrated center moves.
+    const int minimum = -71, maximum = 12;
+    int center = trim < minimum ? minimum : trim > maximum ? maximum : trim;
+    if (centering) return center;
+    stick = stick < -90 ? -90 : stick > 90 ? 90 : stick;
+    int travel = stick < 0 ? center - minimum : maximum - center;
+    return center + (int)round(stick * travel / 90.0);
+}
+
+static const char *trimPath(void) {
+    static char path[1024];
+    const char *home = getenv("HOME");
+    if (!home || snprintf(path, sizeof(path), "%s/Library/Application Support/Bus/steering-trim", home) >= (int)sizeof(path)) return NULL;
+    return path;
+}
+
+static int loadTrim(void) {
+    const char *path = trimPath();
+    FILE *file = path ? fopen(path, "r") : NULL;
+    int trim = 0;
+    if (file) { if (fscanf(file, "%d", &trim) != 1 || trim < -90 || trim > 90) trim = 0; fclose(file); }
+    return trim;
+}
+
+static void saveTrim(int trim) {
+    const char *path = trimPath();
+    FILE *file = path ? fopen(path, "w") : NULL;
+    if (file) { fprintf(file, "%d\n", trim); fclose(file); }
+    else fputs("Could not save servo center; calibration is in memory only\n", stderr);
 }
 
 static void commandBytes(uint8_t bytes[3], int angle, int speed) {
@@ -237,9 +289,11 @@ int main(int argc, char **argv) {
     struct sigaction action = {0}; action.sa_handler = stopSignal;
     sigemptyset(&action.sa_mask);
     sigaction(SIGINT, &action, NULL); sigaction(SIGTERM, &action, NULL);
+    action.sa_handler = calibrateSteeringSignal; sigaction(SIGUSR2, &action, NULL);
     double start = monotonicSeconds(), next = start + 0.02, lastPrint = 0;
     bool connected = false, ready = false;
-    int lastAngle = 0, status = 0;
+    int lastAngle = 0, status = 0, steeringTrim = loadTrim();
+    bool steeringCentering = false;
     while (!quitting && (!duration || monotonicSeconds() - start < duration)) {
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, fmax(0, next - monotonicSeconds()), false);
         double now = monotonicSeconds();
@@ -253,14 +307,31 @@ int main(int argc, char **argv) {
             connected = ready = false;
             continue;
         }
-        int angle = steeringAngle(state.steering, deadzone);
-        int speed = triggerSpeed(state.leftTrigger, state.rightTrigger);
+        double left = state.leftTrigger, right = state.rightTrigger;
+        int stickAngle = steeringAngle(state.steering, deadzone);
+        if (steeringCalibrationRequested) {
+            steeringCalibrationRequested = 0;
+            steeringTrim = ready ? lastAngle : trimmedAngle(stickAngle, steeringTrim, false); steeringCentering = true;
+            if (left <= 0.02 && right <= 0.02) ready = true;
+            saveTrim(steeringTrim);
+            printf("Servo center calibrated: %+d degrees; release steering stick\n", steeringTrim);
+        }
+        if (steeringResetRequested) {
+            steeringResetRequested = 0;
+            steeringTrim = 0;
+            steeringCentering = true;
+            saveTrim(steeringTrim);
+            puts("Servo center reset to 0 degrees; release steering stick");
+        }
+        if (steeringCentering && stickAngle == 0) steeringCentering = false;
+        int angle = trimmedAngle(stickAngle, steeringTrim, steeringCentering);
+        int speed = triggerSpeed(left, right);
         if (!connected) {
             printf("Connected: %s\n", state.name);
-            puts("Left stick X = steering; RT = forward; LT = reverse. Stronger wins. Ctrl-C exits.");
+            puts("Left stick X = steering; RT = forward; LT = reverse. Stronger wins. Y calibrates servo center; B resets it to 0. Ctrl-C exits.");
             connected = true;
         }
-        if (!ready && angle == 0 && state.leftTrigger <= 0.02 && state.rightTrigger <= 0.02) {
+        if (!ready && stickAngle == 0 && left <= 0.02 && right <= 0.02) {
             ready = true; puts("Steering centered and triggers released; ready");
         }
         if (ready) {

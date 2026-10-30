@@ -13,12 +13,42 @@ int main(void) {
     assert(triggerSpeed(0,1)==100 && triggerSpeed(1,0)==-100);
     assert(triggerSpeed(0.01,0.02)==0);
     assert(triggerSpeed(-1,2)==100);
+    assert(trimmedAngle(0,0,false)==0);
+    assert(trimmedAngle(90,0,false)==12);
+    assert(trimmedAngle(-90,0,false)==-71);
+    assert(trimmedAngle(0,-30,false)==-30);
+    assert(trimmedAngle(30,-30,true)==-30);
+    assert(trimmedAngle(90,-30,false)==12);
+    assert(trimmedAngle(-90,-30,false)==-71);
+    assert(trimmedAngle(45,-30,false)==-9);
+    assert(trimmedAngle(-45,-30,false)==-51);
+    for (int trim = -90; trim <= 90; trim++) {
+        int previous = -71;
+        for (int stick = -90; stick <= 90; stick++) {
+            int angle = trimmedAngle(stick,trim,false);
+            assert(angle >= -71 && angle <= 12 && angle >= previous);
+            previous = angle;
+        }
+        assert(trimmedAngle(-90,trim,false)==-71);
+        assert(trimmedAngle(90,trim,false)==12);
+    }
     uint8_t bytes[3]; commandBytes(bytes,-90,-100);
     assert(bytes[0]==1 && bytes[1]==166 && bytes[2]==100);
     commandBytes(bytes,90,100); assert(bytes[1]==90 && bytes[2]==156);
     commandBytes(bytes,0,0); assert(bytes[2]==0);
     commandBytes(bytes,0,triggerSpeed(0.3,0.8)); assert((int8_t)bytes[2]==-80);
     commandBytes(bytes,0,triggerSpeed(0.8,0.3)); assert((int8_t)bytes[2]==80);
+    state.calibrateDown = 0; steeringCalibrationRequested = 0;
+    calibrationButton(1); assert(steeringCalibrationRequested == 1);
+    steeringCalibrationRequested = 0; calibrationButton(1); assert(steeringCalibrationRequested == 0);
+    calibrationButton(0); calibrationButton(1); assert(steeringCalibrationRequested == 1);
+    steeringCalibrationRequested = 0; calibrationButton(0);
+    state.resetDown = 0; steeringResetRequested = 0;
+    resetButton(1); assert(steeringResetRequested == 1);
+    steeringResetRequested = 0; resetButton(1); assert(steeringResetRequested == 0);
+    resetButton(0); resetButton(1); assert(steeringResetRequested == 1);
+    steeringResetRequested = 0; resetButton(0);
+    assert(trimmedAngle(30,0,true)==0);
     double value;
     assert(parseNumber("10s",true,&value) && value==10);
     assert(parseNumber("20ms",true,&value) && value==0.02);

@@ -46,7 +46,8 @@ PLIST
       launchctl bootstrap "$domain" "$plist"
     fi
     ;;
+  calibrate) launchctl kill SIGUSR2 "$domain/$label" ;;
   stop) launchctl bootout "$domain/$label" ;;
   status) launchctl print "$domain/$label" ;;
-  *) echo 'Usage: controller-service.sh install|start|stop|status' >&2; exit 1 ;;
+  *) echo 'Usage: controller-service.sh install|start|stop|status|calibrate' >&2; exit 1 ;;
 esac

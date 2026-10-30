@@ -6,7 +6,7 @@ UDP :5000 receives exactly [1, signed angle -90..90, signed speed -100..100].
 Network task validates, converts to hardware Target, refreshes receipt time and
 queues stop/detach after 1000ms without valid input. No separate heartbeat.
 Actuator task blocks on the latest-target queue and updates only changed outputs.
-Keep D5/D6 + D9/D10 shared motors and D3 servo. No UI/Python.
+Keep D5/D6 + D9/D10 shared motors and A1 servo. No UI/Python.
 Native macOS Xbox controller sender lives in controller/main.c: plain C with
 IOKit/CoreFoundation, no third-party packages. No address means dry run; do not
 send physical actuation commands during testing without user authorization.

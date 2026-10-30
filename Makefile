@@ -50,3 +50,7 @@ controller-stop:
 	sh tools/controller-service.sh stop
 controller-status:
 	sh tools/controller-service.sh status
+
+.PHONY: controller-calibrate
+controller-calibrate:
+	sh tools/controller-service.sh calibrate

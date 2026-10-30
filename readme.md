@@ -36,7 +36,7 @@ Internal `Target` contains signed PWM -255…255, servo angle 0…180 and enable
 it contains no wire type, framing, session or timestamp. Queue length is one.
 Actuator blocks on the queue; network sleeps 5 ms after an empty UDP poll.
 
-D5/D6 and D9/D10 drive motors, D3 drives servo (500–2500 µs; calibrate travel).
+D5/D6 and D9/D10 drive motors, A1 drives servo (500–2500 µs; calibrate travel).
 Servo starts disabled; timeout detaches pulses and releases torque. See
 [hardware.md](hardware.md). Core 1.6.0 bundles Arduino_FreeRTOS; Servo 1.3.0 is
 installed by setup. `make test` exercises this sketch with host mocks; firmware
@@ -82,3 +82,17 @@ Stop unloads it until explicitly started or the next login. Logs are in
 `~/Library/Logs/Bus/controller.log` and `controller-error.log`. The service uses
 `--quiet`: connection/error logs only, avoiding continuous joystick-value logs.
 Do not run a foreground sender at the same time as the service.
+
+### Servo center calibration
+
+Hold the left stick until the wheels/servo are straight, press **Y** (Xbox top
+face button, equivalent to PlayStation Triangle), then release the stick.
+`make controller-calibrate` does the same from the command line. Holding Y does
+not repeatedly recalibrate; each press captures once. The current servo target
+becomes its new center and is held while the stick returns to neutral. Trim is
+stored at `~/Library/Application Support/Bus/steering-trim` and survives restarts.
+Press **B** to reset the saved center to **0°**; release the stick to resume steering.
+Steering is scaled from the calibrated center to fixed mechanical limits of
+**−71° and +12°**. Moving the center changes the travel available on each side;
+commands never exceed those endpoints.
+Triggers are unaffected. Calibration stays on the Mac; no firmware change.
