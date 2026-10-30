@@ -184,13 +184,15 @@ static int triggerSpeed(double left, double right) {
 }
 
 static int trimmedAngle(int stick, int trim, bool centering) {
-    // Mechanical endpoints stay fixed when the calibrated center moves.
-    const int minimum = -71, maximum = 12;
-    int center = trim < minimum ? minimum : trim > maximum ? maximum : trim;
+    // Travel limits are offsets from the saved center, within servo limits.
+    int center = trim < -90 ? -90 : trim > 90 ? 90 : trim;
     if (centering) return center;
+    int minimum = center - 71 < -90 ? -90 : center - 71;
+    int maximum = center + 71 > 90 ? 90 : center + 71;
     stick = stick < -90 ? -90 : stick > 90 ? 90 : stick;
     int travel = stick < 0 ? center - minimum : maximum - center;
-    return center + (int)round(stick * travel / 90.0);
+    double position = stick / 90.0;
+    return center + (int)round(position * fabs(position) * travel);
 }
 
 static const char *trimPath(void) {

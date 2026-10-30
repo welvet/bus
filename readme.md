@@ -92,9 +92,10 @@ not repeatedly recalibrate; each press captures once. The current servo target
 becomes its new center and is held while the stick returns to neutral. Trim is
 stored at `~/Library/Application Support/Bus/steering-trim` and survives restarts.
 Press **B** to reset the saved center to **0°**; release the stick to resume steering.
-Steering is scaled from the calibrated center to fixed mechanical limits of
-**−71° and +12°**. Moving the center changes the travel available on each side;
-commands never exceed those endpoints.
+Steering uses a quadratic curve with travel limits relative to the calibrated
+center: **center − 71° to center + 71°**, clipped to the servo's −90°/+90° range.
+For example, center +10° gives endpoints −61° and +81°. Half usable stick travel
+gives 25% of the available steering travel on that side.
 Triggers are unaffected. Calibration stays on the Mac; no firmware change.
 
 Trigger motor output: released (up to 2%) stops; above that, full trigger travel

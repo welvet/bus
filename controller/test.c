@@ -25,23 +25,32 @@ int main(void) {
         previousSpeed = speed;
     }
     assert(trimmedAngle(0,0,false)==0);
-    assert(trimmedAngle(90,0,false)==12);
+    for (int stick = 0; stick <= 90; stick++)
+        assert(trimmedAngle(stick,0,false) == -trimmedAngle(-stick,0,false));
+    assert(trimmedAngle(90,0,false)==71);
     assert(trimmedAngle(-90,0,false)==-71);
     assert(trimmedAngle(0,-30,false)==-30);
     assert(trimmedAngle(30,-30,true)==-30);
-    assert(trimmedAngle(90,-30,false)==12);
-    assert(trimmedAngle(-90,-30,false)==-71);
-    assert(trimmedAngle(45,-30,false)==-9);
-    assert(trimmedAngle(-45,-30,false)==-51);
+    assert(trimmedAngle(90,-30,false)==41);
+    assert(trimmedAngle(-90,-30,false)==-90);
+    assert(trimmedAngle(45,-30,false)==-12);
+    assert(trimmedAngle(-45,-30,false)==-45);
+    assert(trimmedAngle(0,10,false)==10);
+    assert(trimmedAngle(-90,10,false)==-61);
+    assert(trimmedAngle(90,10,false)==81);
+    assert(trimmedAngle(45,10,false)==28);
+    assert(trimmedAngle(-45,10,false)==-8);
     for (int trim = -90; trim <= 90; trim++) {
-        int previous = -71;
+        int minimum = trim - 71 < -90 ? -90 : trim - 71;
+        int maximum = trim + 71 > 90 ? 90 : trim + 71;
+        int previous = minimum;
         for (int stick = -90; stick <= 90; stick++) {
             int angle = trimmedAngle(stick,trim,false);
-            assert(angle >= -71 && angle <= 12 && angle >= previous);
+            assert(angle >= minimum && angle <= maximum && angle >= previous);
             previous = angle;
         }
-        assert(trimmedAngle(-90,trim,false)==-71);
-        assert(trimmedAngle(90,trim,false)==12);
+        assert(trimmedAngle(-90,trim,false)==minimum);
+        assert(trimmedAngle(90,trim,false)==maximum);
     }
     uint8_t bytes[3]; commandBytes(bytes,-90,-100);
     assert(bytes[0]==1 && bytes[1]==166 && bytes[2]==100);
