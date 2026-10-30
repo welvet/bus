@@ -54,7 +54,7 @@ class Servo {
 public:
   bool attached() { return enabled; }
   void attach(int pin, int minimum, int maximum) {
-    assert(pin == 3 && minimum == 500 && maximum == 2500); enabled = true; ++attaches;
+    assert(pin == 13 && minimum == 500 && maximum == 2500); enabled = true; ++attaches;
   }
   void detach() { enabled = false; ++detaches; }
   void write(int value) { servoWrites.push_back(value); }
