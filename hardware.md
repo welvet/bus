@@ -48,18 +48,18 @@ Disconnect motor power if wiring or motion is unexpected.
 Power bank → PD trigger (verify 9 V) → Arduino VIN and both buck inputs.
 6 V buck → DRV8833/motors; 5 V buck → servo. All grounds common.
 Leave Arduino 5V pin unconnected to prevent USB feeding the external power chain.
-USB can be connected for programming. Keep peaks within 18 W including losses. One MG90S is now supported on A1; the second is not implemented. Planned carrier: PLA+ in Plasticity with mounts, cable channels and
+USB can be connected for programming. Keep peaks within 18 W including losses. One MG90S is now supported on D3; the second is not implemented. Planned carrier: PLA+ in Plasticity with mounts, cable channels and
 removable connectors. No physical wiring or testing is assumed complete.
 
 ## MG90S #1
 
 | Servo wire | Connection |
 |---|---|
-| Orange/yellow signal | Arduino A1 |
+| Orange/yellow signal | Arduino D3 |
 | Red power | External regulated 5 V |
 | Brown/black ground | Supply GND and Arduino GND |
 
 Do not use DRV8833 outputs for servo power. Initial test: use a sufficient external
-5 V supply, not Arduino 5 V, and detach the linkage. A1 is reserved for the servo;
+5 V supply, not Arduino 5 V, and detach the linkage. D3 is reserved for the servo;
 D5/D6/D9/D10 motor wiring stays the same. After one second without valid UDP commands, motors stop and servo pulses detach.
 A zero-speed command keeps the servo at the angle in that command. No servo presence or actual angle feedback exists.

@@ -36,7 +36,7 @@ Internal `Target` contains signed PWM -255…255, servo angle 0…180 and enable
 it contains no wire type, framing, session or timestamp. Queue length is one.
 Actuator blocks on the queue; network sleeps 5 ms after an empty UDP poll.
 
-D5/D6 and D9/D10 drive motors, A1 drives servo (500–2500 µs; calibrate travel).
+D5/D6 and D9/D10 drive motors, D3 drives servo (500–2500 µs; calibrate travel).
 Servo starts disabled; timeout detaches pulses and releases torque. See
 [hardware.md](hardware.md). Core 1.6.0 bundles Arduino_FreeRTOS; Servo 1.3.0 is
 installed by setup. `make test` exercises this sketch with host mocks; firmware

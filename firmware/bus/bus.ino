@@ -29,7 +29,7 @@ void actuatorTask(void *) {
     xQueueReceive(targets, &target, portMAX_DELAY);
     if (!target.enabled) {
       if (pwm != 0) setMotors(0);
-      if (servo.attached()) { servo.detach(); digitalWrite(A1, LOW); }
+      if (servo.attached()) { servo.detach(); digitalWrite(3, LOW); }
       pwm = 0; angle = -1;
       continue;
     }
@@ -38,7 +38,7 @@ void actuatorTask(void *) {
       pwm = target.motorPwm;
     }
     if (target.servoAngle != angle) {
-      if (!servo.attached()) servo.attach(A1, 500, 2500);
+      if (!servo.attached()) servo.attach(3, 500, 2500);
       servo.write(target.servoAngle);
       angle = target.servoAngle;
     }
@@ -75,7 +75,7 @@ void networkTask(void *) {
 }
 
 void setup() {
-  const uint8_t pins[] = {A1, 5, 6, 9, 10};
+  const uint8_t pins[] = {3, 5, 6, 9, 10};
   for (uint8_t pin : pins) {
     pinMode(pin, OUTPUT); digitalWrite(pin, LOW);
   }
