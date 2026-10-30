@@ -188,7 +188,7 @@ static int trimmedAngle(int stick, int trim, bool centering) {
     int center = trim < -90 ? -90 : trim > 90 ? 90 : trim;
     if (centering) return center;
     int minimum = center - 71 < -90 ? -90 : center - 71;
-    int maximum = center + 71 > 90 ? 90 : center + 71;
+    int maximum = center + 35 > 90 ? 90 : center + 35;
     stick = stick < -90 ? -90 : stick > 90 ? 90 : stick;
     int travel = stick < 0 ? center - minimum : maximum - center;
     double position = stick / 90.0;
