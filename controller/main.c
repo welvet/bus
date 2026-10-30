@@ -169,12 +169,18 @@ static int steeringAngle(double value, double deadzone) {
 }
 
 static int triggerSpeed(double left, double right) {
+    // Both directions share the measured minimum output needed to start moving.
+    const double released = 0.02;
+    const int minimum = 15;
     left = fmax(0, fmin(1, left)); right = fmax(0, fmin(1, right));
-    if (left <= 0.02) left = 0;
-    if (right <= 0.02) right = 0;
-    if (right > left) return (int)round(right * 100);
-    if (left > right) return -(int)round(left * 100);
-    return 0;
+    if (left <= released) left = 0;
+    if (right <= released) right = 0;
+    if (left == right) return 0;
+    double pressure = fmax(left, right);
+    double travel = (pressure - released) / (1 - released);
+    // Quadratic response gives more trigger travel to low-speed control.
+    int speed = minimum + (int)round(travel * travel * (100 - minimum));
+    return right > left ? speed : -speed;
 }
 
 static int trimmedAngle(int stick, int trim, bool centering) {

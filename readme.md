@@ -96,3 +96,7 @@ Steering is scaled from the calibrated center to fixed mechanical limits of
 **−71° and +12°**. Moving the center changes the travel available on each side;
 commands never exceed those endpoints.
 Triggers are unaffected. Calibration stays on the Mac; no firmware change.
+
+Trigger motor output: released (up to 2%) stops; above that, full trigger travel
+uses a quadratic curve from a shared 15% minimum running output to 100% in
+either direction. Half usable travel gives 36% output for finer slow control.
