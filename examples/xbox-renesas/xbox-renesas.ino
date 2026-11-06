@@ -123,5 +123,6 @@ void loop() {
     startScan();
     return;
   }
+  BLE.debug(Serial); // Trace security exchange and incoming input notifications.
   Serial.println("Waiting for input; move sticks or press buttons.");
 }
