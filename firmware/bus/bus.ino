@@ -1,18 +1,20 @@
 #include <Arduino_FreeRTOS.h>
-#include <WiFiS3.h>
-#include <WiFiUdp.h>
 #include <Servo.h>
-#include "config.h"
+#include <BusProtocol.h>
+#include "display.h"
 
-// Internal actuator command: hardware values, not the three-byte wire message.
 struct Target {
   int motorPwm;
   int servoAngle;
   bool enabled;
+  uint32_t receivedAt;
 };
-
 QueueHandle_t targets;
-WiFiUDP udp;
+QueueHandle_t feedback;
+BusProtocol::Parser parser;
+bool receiverArmed = false, receiverActive = false;
+uint32_t receivedAt = 0;
+uint32_t reportedAt = 0;
 
 void setMotors(int pwm) {
   analogWrite(5, 0); analogWrite(6, 0);
@@ -21,82 +23,92 @@ void setMotors(int pwm) {
   if (pwm < 0) { analogWrite(6, -pwm); analogWrite(10, -pwm); }
 }
 
-void actuatorTask(void *) {
+void actuatorTask(void*) {
   Servo servo;
-  Target target;
+  Target target = {0, 90, false, 0};
   int pwm = 0, angle = -1;
   for (;;) {
-    xQueueReceive(targets, &target, portMAX_DELAY);
+    uint32_t age = uint32_t(millis() - target.receivedAt);
+    if (target.enabled && age >= BusProtocol::timeoutMs) target.enabled = false;
     if (!target.enabled) {
       if (pwm != 0) setMotors(0);
       if (servo.attached()) { servo.detach(); digitalWrite(13, LOW); }
       pwm = 0; angle = -1;
-      continue;
+    } else {
+      if (target.motorPwm != pwm) { setMotors(target.motorPwm); pwm = target.motorPwm; }
+      if (target.servoAngle != angle) {
+        if (!servo.attached()) servo.attach(13, 500, 2500);
+        servo.write(target.servoAngle);
+        angle = target.servoAngle;
+      }
     }
-    if (target.motorPwm != pwm) {
-      setMotors(target.motorPwm);
-      pwm = target.motorPwm;
-    }
-    if (target.servoAngle != angle) {
-      if (!servo.attached()) servo.attach(13, 500, 2500);
-      servo.write(target.servoAngle);
-      angle = target.servoAngle;
-    }
+    // Report the software-applied target without doing UART I/O in this task.
+    int speed = (pwm * 100 + (pwm >= 0 ? 127 : -127)) / 255;
+    BusProtocol::Frame status = target.enabled
+        ? BusProtocol::Frame{BusProtocol::Command::Applied, angle - 90, speed}
+        : BusProtocol::Frame{BusProtocol::Command::Stopped, 0, 0};
+    xQueueOverwrite(feedback, &status);
+    displayShow(status.speed, status.angle, target.enabled);
+    // The actuator task owns the watchdog, even if the serial task stalls.
+    TickType_t wait = target.enabled
+        ? pdMS_TO_TICKS(BusProtocol::remainingMs(target.receivedAt, millis()))
+        : portMAX_DELAY;
+    if (xQueueReceive(targets, &target, wait) != pdTRUE) target.enabled = false;
   }
 }
 
-void networkTask(void *) {
-  uint32_t receivedAt = 0;
-  bool active = false;
-  for (;;) {
-    if (active && uint32_t(millis() - receivedAt) >= 1000) {
-      Target stop = {0, 90, false};
-      xQueueOverwrite(targets, &stop);
-      active = false;
+void receiveSerial() {
+  uint32_t now = millis();
+  if (receiverActive && uint32_t(now - receivedAt) >= BusProtocol::timeoutMs) {
+    receiverActive = receiverArmed = false;
+  }
+  // Bound work so garbage traffic cannot prevent timeout/arming checks.
+  for (int i = 0; i < 64 && Serial.available() > 0; ++i) {
+    BusProtocol::Frame frame;
+    if (!parser.push(uint8_t(Serial.read()), millis(), frame)) continue;
+    if (frame.command != BusProtocol::Command::Drive && frame.command != BusProtocol::Command::Stop) continue;
+    now = millis();
+    if (receiverActive && uint32_t(now - receivedAt) >= BusProtocol::timeoutMs)
+      receiverActive = receiverArmed = false;
+    Target target = {0, 90, false, now};
+    if (frame.command == BusProtocol::Command::Stop) {
+      receiverActive = receiverArmed = false;
+    } else {
+      // After boot/stop/timeout, ignore moving commands until a zero-speed one.
+      if (!receiverArmed && frame.speed != 0) continue;
+      receiverActive = receiverArmed = true;
+      receivedAt = now;
+      target = {frame.speed * 255 / 100, frame.angle + 90, true, now};
     }
-
-    int size = udp.parsePacket();
-    if (size <= 0) {
-      vTaskDelay(pdMS_TO_TICKS(5));
-      continue;
-    }
-    if (size != 3) { udp.flush(); continue; }
-    uint8_t message[3];
-    if (udp.read(message, sizeof(message)) != 3 || message[0] != 1) continue;
-    int angle = message[1] < 128 ? message[1] : int(message[1]) - 256;
-    int speed = message[2] < 128 ? message[2] : int(message[2]) - 256;
-    if (angle < -90 || angle > 90 || speed < -100 || speed > 100) continue;
-
-    Target target = {speed * 255 / 100, angle + 90, true};
-    receivedAt = millis();
-    active = true;
     xQueueOverwrite(targets, &target);
   }
 }
 
+void sendStatus() {
+  BusProtocol::Frame status;
+  if (uint32_t(millis() - reportedAt) >= 100 && xQueuePeek(feedback, &status, 0) == pdTRUE) {
+    uint8_t bytes[BusProtocol::frameSize];
+    if (BusProtocol::encode(status, bytes)) Serial.write(bytes, sizeof(bytes));
+    reportedAt = millis();
+  }
+}
+
+void serialTask(void*) {
+  for (;;) { receiveSerial(); sendStatus(); vTaskDelay(pdMS_TO_TICKS(5)); }
+}
+
 void setup() {
   const uint8_t pins[] = {13, 5, 6, 9, 10};
-  for (uint8_t pin : pins) {
-    pinMode(pin, OUTPUT); digitalWrite(pin, LOW);
-  }
-  Serial.begin(115200);
-  if (WiFi.begin(WIFI_SSID, WIFI_PASSWORD) != WL_CONNECTED) {
-    Serial.println("WiFi connection failed. Restart to try again.");
-    for (;;) {}
-  }
-  if (!udp.begin(5000)) {
-    Serial.println("UDP setup failed. Restart to try again.");
-    for (;;) {}
-  }
-  Serial.print("UDP listening: "); Serial.print(WiFi.localIP()); Serial.println(":5000");
+  for (uint8_t pin : pins) { pinMode(pin, OUTPUT); digitalWrite(pin, LOW); }
+  displayBegin();
+  Serial.begin(BusProtocol::baud);
   targets = xQueueCreate(1, sizeof(Target));
-  if (!targets || xTaskCreate(networkTask, "network", 1024, nullptr, 1, nullptr) != pdPASS ||
-      xTaskCreate(actuatorTask, "actuators", 384, nullptr, 2, nullptr) != pdPASS) {
-    Serial.println("Task allocation failed; outputs remain off");
-    for (;;) {}
+  feedback = xQueueCreate(1, sizeof(BusProtocol::Frame));
+  if (!targets || !feedback || xTaskCreate(serialTask, "serial", 1024, nullptr, 1, nullptr) != pdPASS ||
+      xTaskCreate(actuatorTask, "actuators", 512, nullptr, 2, nullptr) != pdPASS) {
+    for (;;) {} // Outputs remain low if allocation fails.
   }
   vTaskStartScheduler();
-  Serial.println("Scheduler failed; outputs remain off");
   for (;;) {}
 }
 void loop() {}

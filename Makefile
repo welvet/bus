@@ -1,56 +1,35 @@
+.DEFAULT_GOAL := help
+.NOTPARALLEL:
 ARDUINO_CLI ?= arduino-cli
+POWERSHELL ?= powershell.exe
 CXX ?= c++
-CC ?= cc
-FQBN := arduino:renesas_uno:unor4wifi
-export WIFI_SSID WIFI_PASSWORD
+RENESAS_SKETCH ?= firmware/bus
+S3_SKETCH ?= firmware/s3
+S3_FQBN ?= esp32:esp32:esp32s3:FlashSize=8M,PSRAM=disabled,USBMode=hwcdc,CDCOnBoot=cdc,FlashMode=dio
 
-.PHONY: help setup boards config compile install monitor test clean controller controller-build controller-test
+.PHONY: help setup boards s3-origin renesas s3-custom monitor test
 help:
-	@echo "make setup | boards | compile | install PORT=... | monitor PORT=... | test | controller [BOARD_IP=...]"
+	@echo "make s3-origin renesas s3-custom"
+	@echo "make setup | boards | monitor [PORT=COM4] | test"
 setup:
-	$(ARDUINO_CLI) core update-index
+	$(ARDUINO_CLI) core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
 	$(ARDUINO_CLI) core install arduino:renesas_uno@1.6.0
+	$(ARDUINO_CLI) core install esp32:esp32@3.3.12 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
 	$(ARDUINO_CLI) lib install "Servo@1.3.0"
+	$(ARDUINO_CLI) lib install --no-deps "XboxSeriesXControllerESP32_asukiaaa@1.1.3" "NimBLE-Arduino@2.5.2" "XboxControllerNotificationParser@1.0.4" "XboxSeriesXHIDReportBuilder_asukiaaa@1.0.1"
 boards:
 	$(ARDUINO_CLI) board list
-config:
-	@sh tools/configure.sh
-compile: config
-	$(ARDUINO_CLI) compile --fqbn $(FQBN) --build-path .build firmware/bus
-install: compile
-	@test -n "$(PORT)" || (echo "Set PORT; run make boards to find it"; exit 1)
-	$(ARDUINO_CLI) upload --fqbn $(FQBN) --port "$(PORT)" --input-dir .build firmware/bus
+s3-origin:
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File tools/flash.ps1 -Action s3-origin -ArduinoCli "$(ARDUINO_CLI)"
+renesas:
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File tools/flash.ps1 -Action renesas -ArduinoCli "$(ARDUINO_CLI)" -Sketch "$(RENESAS_SKETCH)"
+s3-custom:
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File tools/flash.ps1 -Action s3-custom -ArduinoCli "$(ARDUINO_CLI)" -Sketch "$(S3_SKETCH)" -S3Fqbn "$(S3_FQBN)"
 monitor:
-	@test -n "$(PORT)" || (echo "Set PORT"; exit 1)
-	$(ARDUINO_CLI) monitor --port "$(PORT)" --config baudrate=115200
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File tools/flash.ps1 -Action monitor -ArduinoCli "$(ARDUINO_CLI)" -Port "$(PORT)"
 test:
-	@mkdir -p .build
-	sed '/^#include /d' firmware/bus/bus.ino > .build/sketch.inc
-	$(CXX) -std=c++11 -Wall -Wextra -Werror tests/firmware_test.cpp -o .build/control_test
-	.build/control_test
-clean:
-	rm -rf .build firmware/bus/config.h firmware/bus/web.h
-
-controller-build:
-	@mkdir -p .build
-	$(CC) -std=c11 -Wall -Wextra -Werror controller/main.c -framework IOKit -framework CoreFoundation -lm -o .build/controller
-controller: controller-build
-	.build/controller $(if $(BOARD_IP),--addr "$(BOARD_IP):5000",)
-controller-test:
-	@mkdir -p .build
-	$(CC) -std=c11 -Wall -Wextra -Werror controller/test.c -framework IOKit -framework CoreFoundation -lm -o .build/controller_test
-	.build/controller_test
-
-.PHONY: controller-install controller-start controller-stop controller-status
-controller-install: controller-build
-	BOARD_IP="$(BOARD_IP)" sh tools/controller-service.sh install
-controller-start:
-	sh tools/controller-service.sh start
-controller-stop:
-	sh tools/controller-service.sh stop
-controller-status:
-	sh tools/controller-service.sh status
-
-.PHONY: controller-calibrate
-controller-calibrate:
-	sh tools/controller-service.sh calibrate
+	$(POWERSHELL) -NoProfile -Command "New-Item -ItemType Directory -Force .build | Out-Null"
+	$(CXX) -std=c++11 -Wall -Wextra -Werror -static -Ifirmware/shared -Itests/mocks tests/protocol_test.cpp -o .build/protocol_test.exe
+	.build/protocol_test.exe
+	$(CXX) -std=c++11 -Wall -Wextra -Werror -static -Ifirmware/shared -Itests/mocks tests/s3_startup_test.cpp -o .build/s3_startup_test.exe
+	.build/s3_startup_test.exe
