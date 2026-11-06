@@ -98,3 +98,23 @@ https://github.com/arduino-libraries/ArduinoBLE/issues/276
 
 Dependency instructions now use the published parser release 1.0.4. The initially
 installed local parser was labeled 1.0.5; that version was unavailable to the user.
+
+## Confirmed descriptor parsing loop in the packet trace
+
+The supplied trace alternates Find Information requests starting at handles
+0x0001 and 0x0003. The format-2 response contains one 128-bit UUID entry:
+18 bytes (2-byte handle + 16-byte UUID). ArduinoBLE's format*4 expression treats
+it as 8-byte entries and reads phantom handles, returning to handle 0x0001.
+This is a source-level diagnosis; the patch still needs a hardware retest.
+
+Apply the guarded patch to your installed ArduinoBLE library, then recompile:
+
+```sh
+python3 tools/patch-arduinoble-discovery.py "$HOME/Documents/Arduino/libraries/ArduinoBLE/src/utility/ATT.cpp"
+```
+
+Use your actual sketchbook library path if different. It creates an adjacent
+ATT.cpp.before-xbox-discovery backup. Restore that file to undo the patch.
+Library upgrades/reinstallation can overwrite the patch. Verbose BLE logging
+is now disabled by default. The script fixes format-2 entry sizes, validates
+packet lengths and handle progress, and terminates at the descriptor range end.

@@ -65,7 +65,7 @@ void setup() {
     for (;;) delay(1000);
   }
   // Packet trace helps locate a stall inside the blocking library call.
-  BLE.debug(Serial);
+  // BLE.debug(Serial); // Enable only when collecting a short packet trace.
   BLE.setTimeout(5000); // Per ATT request, not an overall discovery deadline.
   BLE.setPairable(YES);
   startScan();
