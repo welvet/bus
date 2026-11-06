@@ -33,13 +33,26 @@ void reportReceived(BLEDevice, BLECharacteristic report) {
 bool subscribeInputs() {
   // Discover only HID: avoid walking unrelated service descriptors.
   Serial.println("Discovering HID service 1812...");
-  if (!controller.discoverService("1812")) return false;
+  BLE.debug(Serial);
+  bool discovered = controller.discoverService("1812");
+  BLE.noDebug();
+  if (!discovered) {
+    Serial.print("HID discovery failed; link connected: ");
+    Serial.println(controller.connected() ? "yes" : "no");
+    return false;
+  }
   Serial.println("HID discovery complete.");
   BLEService hid = controller.service("1812");
-  if (!hid) return false;
+  if (!hid) {
+    Serial.println("Discovery returned without HID service 1812.");
+    return false;
+  }
+  Serial.print("HID characteristics: "); Serial.println(hid.characteristicCount());
   int subscribed = 0;
   for (int i = 0; i < hid.characteristicCount(); ++i) {
     BLECharacteristic report = hid.characteristic(i);
+    Serial.print("Characteristic "); Serial.print(report.uuid());
+    Serial.print(" properties: 0x"); Serial.println(report.properties(), HEX);
     if (String(report.uuid()) != "2a4d" || !report.canSubscribe()) continue;
     BLEDescriptor reference = report.descriptor("2908");
     uint8_t identity[2];
@@ -103,7 +116,7 @@ void loop() {
   }
   controller = candidate;
   if (!subscribeInputs()) {
-    Serial.println("Input subscription failed; pairing/security or report layout may be unsupported.");
+    Serial.println("Controller setup failed; see the preceding discovery/report diagnostics.");
     controller.disconnect();
     controller = BLEDevice();
     delay(1000);
