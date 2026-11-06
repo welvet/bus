@@ -8,7 +8,7 @@ RUN case "$TARGETARCH" in amd64) cli_arch=64bit ;; arm64) cli_arch=ARM64 ;; *) e
        | tar -xz -C /usr/local/bin arduino-cli
 RUN arduino-cli core update-index \
     && arduino-cli core install arduino:renesas_uno@1.6.0 \
-    && arduino-cli lib install 'ArduinoBLE@2.1.0' 'XboxControllerNotificationParser@1.0.5'
+    && arduino-cli lib install 'ArduinoBLE@2.1.0' 'XboxControllerNotificationParser@1.0.4'
 WORKDIR /src
 COPY examples/xbox-renesas /src/examples/xbox-renesas
 RUN arduino-cli compile --fqbn arduino:renesas_uno:unor4wifi \

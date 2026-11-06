@@ -9,12 +9,12 @@ It holds the bus motor/servo signal pins low.
 
 Test target: arduino:renesas_uno:unor4wifi (installed core 1.6.0).
 Libraries downloaded for this adaptation: ArduinoBLE 2.1.0,
-XboxControllerNotificationParser 1.0.5 (Arduino_SpiNINA 0.0.2 dependency).
+XboxControllerNotificationParser 1.0.4 (Arduino_SpiNINA 0.0.2 dependency).
 
 From the project root:
 
 ```sh
-arduino-cli lib install 'ArduinoBLE@2.1.0' 'XboxControllerNotificationParser@1.0.5'
+arduino-cli lib install 'ArduinoBLE@2.1.0' 'XboxControllerNotificationParser@1.0.4'
 arduino-cli compile --fqbn arduino:renesas_uno:unor4wifi --build-path .build/xbox-renesas examples/xbox-renesas
 ```
 
@@ -83,3 +83,18 @@ image. The amd64 Linux platform avoids the Mac compiler compatibility issue.
 The image does not upload or execute firmware. Firmware still runs on the Uno R4.
 Docker was unavailable on the development Mac on 2026-11-05, so this container
 build has not yet been executed or verified.
+
+## Discovery diagnostics (2026-11-06)
+
+The first hardware attempt connected but stalled in discoverAttributes(). The
+example now uses discoverService("1812") to restrict characteristic/descriptor
+discovery to HID and enables BLE.debug(Serial) for packet diagnostics. This is
+a workaround to try, not a verified fix. ArduinoBLE still enumerates services
+while applying the filter. BLE.setTimeout(5000) limits individual ATT requests;
+it does not impose an overall deadline on discovery or fix a library loop.
+If discovery still stalls, capture the last packet trace lines. Disable debug
+with BLE.noDebug() once reception works. Upstream related report:
+https://github.com/arduino-libraries/ArduinoBLE/issues/276
+
+Dependency instructions now use the published parser release 1.0.4. The initially
+installed local parser was labeled 1.0.5; that version was unavailable to the user.

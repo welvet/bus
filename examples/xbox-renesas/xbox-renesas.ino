@@ -31,8 +31,10 @@ void reportReceived(BLEDevice, BLECharacteristic report) {
 }
 
 bool subscribeInputs() {
-  Serial.println("Discovering attributes...");
-  if (!controller.discoverAttributes()) return false;
+  // Discover only HID: avoid walking unrelated service descriptors.
+  Serial.println("Discovering HID service 1812...");
+  if (!controller.discoverService("1812")) return false;
+  Serial.println("HID discovery complete.");
   BLEService hid = controller.service("1812");
   if (!hid) return false;
   int subscribed = 0;
@@ -62,6 +64,9 @@ void setup() {
     Serial.println("BLE initialization failed; check UNO R4 connectivity firmware.");
     for (;;) delay(1000);
   }
+  // Packet trace helps locate a stall inside the blocking library call.
+  BLE.debug(Serial);
+  BLE.setTimeout(5000); // Per ATT request, not an overall discovery deadline.
   BLE.setPairable(YES);
   startScan();
 }
