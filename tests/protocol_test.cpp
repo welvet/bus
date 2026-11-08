@@ -183,14 +183,18 @@ void testActuators() {
   resetActuators();
   arrivals = {{0,{255,90,true,0},false}, {1100,{},true}};
   runActuators(); assert((detachedAt == std::vector<uint32_t>{1000}));
+  lightsOn = false;
+  sendStatus();
   uint8_t stoppedPixels[8][12]; displayPixels(0,0,false,stoppedPixels);
   assert(memcmp(matrixPixels,stoppedPixels,sizeof(matrixPixels)) == 0);
   assert(feedbackFrames.front().command == BusProtocol::Command::Stopped);
   assert(feedbackFrames[1].command == BusProtocol::Command::Applied && feedbackFrames[1].speed == 100);
   assert(feedbackFrames.back().command == BusProtocol::Command::Stopped);
-  sendStatus();
-  assert(Serial.output == bytes({BusProtocol::Command::Stopped,0,0}));
-  sendStatus(); assert(Serial.output.size() == BusProtocol::frameSize); // Rate limited.
+  auto expected = bytes({BusProtocol::Command::Stopped,0,0});
+  auto lightReply = bytes({BusProtocol::Command::LightsApplied,0,0});
+  expected.insert(expected.end(), lightReply.begin(), lightReply.end());
+  assert(Serial.output == expected);
+  sendStatus(); assert(Serial.output.size() == 2 * BusProtocol::frameSize); // Rate limited.
   assert((pwmWrites[pwmWrites.size()-1] == std::pair<int,int>{10,0}));
   resetActuators(1500); arrivals = {{1500,{255,90,true,0},false}, {1600,{},true}};
   runActuators(); assert(attaches == 0 && pwmWrites.empty()); // Stale queued drive never applies.
@@ -224,6 +228,9 @@ void testDisplay() {
       assert(pixels[row][column] == (stopped[row][column] == '#'));
   displayShow(50,10,true); int count = matrixUpdates;
   displayShow(50,10,true); assert(matrixUpdates == count);
+  displayPixels(0,0,false,pixels,true);
+  assert(pixels[4][0] && pixels[4][1] && pixels[4][5]); // Lights alongside stopped X.
+  displayShow(50,10,true,true); assert(matrixUpdates == count + 1);
 }
 XboxInput neutral(uint32_t now) {
   XboxInput input; input.connected = true; input.session = 1;

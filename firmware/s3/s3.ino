@@ -11,6 +11,8 @@ BusProtocol::Frame lastReply = {BusProtocol::Command::Stopped, 0, 0};
 BusProtocol::Parser replies;
 uint32_t replyAt = 0;
 bool haveReply = false;
+bool reportedLights = false, haveLightReply = false;
+uint32_t lightReplyAt = 0;
 
 void sendCommand(const BusProtocol::Frame& command) {
   uint8_t bytes[BusProtocol::frameSize];
@@ -41,8 +43,12 @@ void setup() {
 void loop() {
   for (int i = 0; i < 64 && busSerial.available() > 0; ++i) {
     BusProtocol::Frame reply;
-    if (replies.push(uint8_t(busSerial.read()), millis(), reply) &&
-        (reply.command == BusProtocol::Command::Applied || reply.command == BusProtocol::Command::Stopped)) {
+    if (!replies.push(uint8_t(busSerial.read()), millis(), reply)) continue;
+    if (reply.command == BusProtocol::Command::LightsApplied) {
+      reportedLights = reply.angle != 0;
+      haveLightReply = true;
+      lightReplyAt = millis();
+    } else if (reply.command == BusProtocol::Command::Applied || reply.command == BusProtocol::Command::Stopped) {
       lastReply = reply;
       replyAt = millis();
       haveReply = true;
@@ -56,6 +62,10 @@ void loop() {
   }
   if (uint32_t(millis() - pingAt) >= 1000) {
     xboxPrintStatus();
+    Serial.printf("Lights: requested=%s D7=%s rx_ms=%ld\n", xboxLights() ? "on" : "off",
+                  !haveLightReply || uint32_t(millis() - lightReplyAt) >= BusProtocol::timeoutMs
+                    ? "unknown" : reportedLights ? "HIGH" : "LOW",
+                  haveLightReply ? static_cast<long>(uint32_t(millis() - lightReplyAt)) : -1L);
     const char* ack = !haveReply || uint32_t(millis() - replyAt) >= BusProtocol::timeoutMs
         ? "missing" : lastReply.command == BusProtocol::Command::Applied ? "applied" : "stopped";
     Serial.printf("Renesas: tx=%s angle=%d speed=%d ack=%s rx_ms=%ld angle=%d speed=%d\n",

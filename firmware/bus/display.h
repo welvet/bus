@@ -2,9 +2,10 @@
 #include <stdint.h>
 
 // 12x8 matrix: signed speed at the top, absolute servo-angle marker below.
-inline void displayPixels(int electricalSpeed, int angle, bool enabled, uint8_t (&pixels)[8][12]) {
+inline void displayPixels(int electricalSpeed, int angle, bool enabled, uint8_t (&pixels)[8][12], bool lights = false) {
   for (int row = 0; row < 8; ++row)
     for (int column = 0; column < 12; ++column) pixels[row][column] = 0;
+  pixels[4][0] = pixels[4][1] = lights ? 1 : 0; // Clear of speed/angle/X.
   if (!enabled) {
     for (int row = 0; row < 8; ++row) {
       pixels[row][row + 2] = 1;
@@ -27,4 +28,4 @@ inline void displayPixels(int electricalSpeed, int angle, bool enabled, uint8_t 
 }
 
 void displayBegin();
-void displayShow(int electricalSpeed, int angle, bool enabled);
+void displayShow(int electricalSpeed, int angle, bool enabled, bool lights = false);

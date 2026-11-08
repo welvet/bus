@@ -36,6 +36,12 @@ ground to Arduino; do not connect the buck's 5 V output to Arduino's 5 V pin.
 Lights start off when S3 starts and retain their setting across controller
 disconnects and motion stops. Reconnecting with B held does not toggle them;
 release and press again. Light state is independent of neutral motion arming.
+Two pixels on the left edge of the matrix's middle row light up when Renesas
+sets D7 HIGH, including while the stopped X is displayed. USB prints
+`Lights: requested=on D7=HIGH rx_ms=...` once per second; `D7=unknown` means
+no recent light acknowledgment. This confirms software pin state, not LED current.
+The serial task owns runtime matrix updates (10 Hz); actuator stopping remains
+independent of display and UART work.
 
 After startup, reconnection or input loss, center steering and release both
 triggers before control arms. The monitor prints only state transitions:
@@ -122,7 +128,7 @@ Each frame is six bytes, serialized explicitly without C struct padding:
 | Bytes | Meaning |
 |---|---|
 | 0-1 | Header `A5 5A` |
-| 2 | `1` = Drive, `2` = Stop, `5` = Lights; reverse direction `3` = Applied, `4` = Stopped |
+| 2 | `1` = Drive, `2` = Stop, `5` = Lights; replies `3` = Applied, `4` = Stopped, `6` = LightsApplied |
 | 3 | Signed angle -90..90 (two's complement) |
 | 4 | Signed electrical speed -100..100 (two's complement) |
 | 5 | CRC-8, polynomial `07`, initial zero, over bytes 0-4 |
@@ -132,6 +138,7 @@ Drive with zero speed stops motors while keeping the commanded servo angle.
 Lights uses byte 3 as an absolute off/on value (0/1), with byte 4 zero. S3
 repeats it with each control frame, so dropped frames or a Renesas reset recover
 the selected light state. Lights frames never arm motion or refresh its watchdog.
+LightsApplied reports D7's software state using the same 0/1 payload at 10 Hz.
 Unknown commands, invalid ranges, bad checksums and incomplete frames are ignored.
 The parser discards a partial frame after a 50 ms inter-byte gap and searches for
 headers again after corruption. No text logs are sent on this UART.

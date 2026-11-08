@@ -12,7 +12,7 @@ struct Target {
 QueueHandle_t targets;
 QueueHandle_t feedback;
 BusProtocol::Parser parser;
-bool receiverArmed = false, receiverActive = false;
+bool receiverArmed = false, receiverActive = false, lightsOn = false;
 uint32_t receivedAt = 0;
 uint32_t reportedAt = 0;
 
@@ -48,7 +48,7 @@ void actuatorTask(void*) {
         ? BusProtocol::Frame{BusProtocol::Command::Applied, angle - 90, speed}
         : BusProtocol::Frame{BusProtocol::Command::Stopped, 0, 0};
     xQueueOverwrite(feedback, &status);
-    displayShow(status.speed, status.angle, target.enabled);
+
     // The actuator task owns the watchdog, even if the serial task stalls.
     TickType_t wait = target.enabled
         ? pdMS_TO_TICKS(BusProtocol::remainingMs(target.receivedAt, millis()))
@@ -67,6 +67,7 @@ void receiveSerial() {
     BusProtocol::Frame frame;
     if (!parser.push(uint8_t(Serial.read()), millis(), frame)) continue;
     if (frame.command == BusProtocol::Command::Lights) {
+      lightsOn = frame.angle != 0;
       digitalWrite(7, frame.angle); // Active-high XY-MOS trigger; independent of motion.
       continue; // Light traffic must never feed the motor watchdog.
     }
@@ -93,6 +94,9 @@ void sendStatus() {
   if (uint32_t(millis() - reportedAt) >= 100 && xQueuePeek(feedback, &status, 0) == pdTRUE) {
     uint8_t bytes[BusProtocol::frameSize];
     if (BusProtocol::encode(status, bytes)) Serial.write(bytes, sizeof(bytes));
+    displayShow(status.speed, status.angle, status.command == BusProtocol::Command::Applied, lightsOn);
+    BusProtocol::Frame lights = {BusProtocol::Command::LightsApplied, lightsOn ? 1 : 0, 0};
+    if (BusProtocol::encode(lights, bytes)) Serial.write(bytes, sizeof(bytes));
     reportedAt = millis();
   }
 }
