@@ -15,6 +15,9 @@ bool haveReply = false;
 void sendCommand(const BusProtocol::Frame& command) {
   uint8_t bytes[BusProtocol::frameSize];
   if (BusProtocol::encode(command, bytes)) busSerial.write(bytes, sizeof(bytes));
+  // Repeat an absolute light state, so a Renesas reset/lost frame self-recovers.
+  BusProtocol::Frame lights = {BusProtocol::Command::Lights, xboxLights() ? 1 : 0, 0};
+  if (BusProtocol::encode(lights, bytes)) busSerial.write(bytes, sizeof(bytes));
   lastCommand = command.command;
   lastSent = command;
   sentAt = millis();

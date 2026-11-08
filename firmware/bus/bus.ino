@@ -66,6 +66,10 @@ void receiveSerial() {
   for (int i = 0; i < 64 && Serial.available() > 0; ++i) {
     BusProtocol::Frame frame;
     if (!parser.push(uint8_t(Serial.read()), millis(), frame)) continue;
+    if (frame.command == BusProtocol::Command::Lights) {
+      digitalWrite(7, frame.angle); // Active-high XY-MOS trigger; independent of motion.
+      continue; // Light traffic must never feed the motor watchdog.
+    }
     if (frame.command != BusProtocol::Command::Drive && frame.command != BusProtocol::Command::Stop) continue;
     now = millis();
     if (receiverActive && uint32_t(now - receivedAt) >= BusProtocol::timeoutMs)
@@ -98,7 +102,7 @@ void serialTask(void*) {
 }
 
 void setup() {
-  const uint8_t pins[] = {13, 5, 6, 9, 10};
+  const uint8_t pins[] = {13, 5, 6, 9, 10, 7};
   for (uint8_t pin : pins) { pinMode(pin, OUTPUT); digitalWrite(pin, LOW); }
   displayBegin();
   Serial.begin(BusProtocol::baud);

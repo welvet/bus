@@ -7,6 +7,7 @@
 #include <vector>
 #include <BusProtocol.h>
 #include "../firmware/s3/control.h"
+#include "../firmware/s3/lights.h"
 
 struct EndTask {};
 using TickType_t = uint32_t;
@@ -241,21 +242,19 @@ void testControls() {
   input.leftTrigger = 0; Control::update(state,input,100);
   assert(Control::update(state,input,350).command == BusProtocol::Command::Stop); // Worker stalled.
   input = neutral(1200); input.reportAt = 200;
-  assert(Control::update(state,input,1200).command == BusProtocol::Command::Stop); // Reports stopped.
+  assert(Control::update(state,input,1200).command == BusProtocol::Command::Drive); // Unchanged controls remain valid.
   input = neutral(1200); input.reportAt = 0; assert(!Control::fresh(input,1200));
   input.reportAt = 1190; input.connectedAt = 1195; assert(!Control::fresh(input,1200));
   assert(Control::steering(32768) == 0 && Control::steering(0) == -90 && Control::steering(65535) == 90);
-  assert(Control::angle(-90,0,false) == -71 && Control::angle(90,0,false) == 35);
-  assert(Control::angle(45,0,false) == 9 && Control::angle(-45,0,false) == -18);
-  assert(Control::angle(-90,20,false) == -51 && Control::angle(90,20,false) == 55);
+  assert(Control::angle(-90) == -71 && Control::angle(90) == 35);
+  assert(Control::angle(45) == 9 && Control::angle(-45) == -18);
+  assert(Control::angle(0) == 0);
   assert(Control::speed(0,20) == 0 && Control::speed(0,21) == 30 && Control::speed(0,529) == 48);
   assert(Control::speed(1000,500) == -Control::speed(500,1000) && Control::speed(500,500) == 0);
   state = Control::State{}; input = neutral(100); Control::update(state,input,100);
   input.steering = 65535; assert(Control::update(state,input,100).angle == 35);
-  input.calibrate = true; assert(Control::update(state,input,100).angle == 35 && state.trim == 35);
-  input.steering = 0; assert(Control::update(state,input,100).angle == 35); // Held Y does not repeat.
-  input.steering = 32768; input.calibrate = false; Control::update(state,input,100);
-  input.reset = true; assert(Control::update(state,input,100).angle == 0 && state.trim == 0);
+  input.steering = 0; assert(Control::update(state,input,100).angle == -71);
+  input.steering = 32768; assert(Control::update(state,input,100).angle == 0);
   state = Control::State{}; input = neutral(100); Control::update(state,input,100);
   input.rightTrigger = 1023; assert(Control::update(state,input,100).speed == -100);
   assert(Control::update(state,input,350).command == BusProtocol::Command::Stop);
@@ -267,12 +266,70 @@ void testControls() {
   input.updatedAt = UINT32_MAX - 5; input.reportAt = UINT32_MAX - 10; input.connectedAt = UINT32_MAX - 500;
   assert(Control::update(state,input,20).command == BusProtocol::Command::Drive);
   assert(Control::update(state,input,1010).command == BusProtocol::Command::Stop);
+  state = Control::State{}; input = neutral(100); Control::update(state,input,100);
+  input.steering = 65535; input.rightTrigger = 1023;
+  for (uint32_t now : {1100u, 10000u, 60000u, 3600000u}) {
+    input.updatedAt = now; // BLE worker remains live; no new HID report needed.
+    auto held = Control::update(state,input,now);
+    assert(held.command == BusProtocol::Command::Drive && held.angle == 35 && held.speed == -100);
+  }
+  input.connected = false;
+  assert(Control::update(state,input,3600000).command == BusProtocol::Command::Stop);
+  input.connected = true; ++input.session;
+  input.updatedAt = input.reportAt = input.connectedAt = 3600001;
+  assert(Control::update(state,input,3600001).command == BusProtocol::Command::Stop);
+  input.steering = 32768; input.rightTrigger = 0;
+  assert(Control::update(state,input,3600001).command == BusProtocol::Command::Drive);
+}
+#include "../firmware/s3/scan.h"
+void testScanSchedule() {
+  ScanSchedule scans;
+  scans.reset(100);
+  assert(scans.due(100) && scans.duration(100) == 4000);
+  scans.begin(28100);
+  assert(scans.due(29100) && scans.duration(29100) == 1000);
+  scans.begin(29100);
+  assert(!scans.due(30100));
+  assert(!scans.due(34099));
+  assert(scans.due(34100) && scans.duration(34100) == 1000);
+  scans.begin(34100);
+  assert(!scans.due(35100));
+  scans.reset(35100); // A new disconnect gets a fresh fast-reconnect period.
+  assert(scans.due(35100) && scans.duration(35100) == 4000);
+  scans.reset(UINT32_MAX - 100);
+  assert(scans.fast(100));
+  scans.begin(30000);
+  assert(!scans.fast(31000) && !scans.due(34999) && scans.due(35000));
 }
 int main() {
   try { setup(); } catch (const EndTask&) {}
-  assert(digitalWrites.size() == 5);
+  assert(digitalWrites.size() == 6);
   for (auto output : digitalWrites) assert(output.second == LOW);
+  LightSwitch lights;
+  assert(!lights.update(false, 1));
+  assert(lights.update(true, 1));
+  assert(lights.update(true, 1)); // Holding B cannot toggle repeatedly.
+  assert(lights.update(false, 1));
+  assert(!lights.update(true, 1));
+  assert(!lights.update(true, 2)); // Reconnect while held.
+  assert(!lights.update(false, 2));
+  assert(lights.update(true, 2));
+  resetReceiver();
+  feed(bytes({BusProtocol::Command::Lights, 1, 0}), 100);
+  assert(digitalWrites.back() == std::make_pair(7, 1));
+  assert(!receiverArmed && !receiverActive && queued.empty());
+  feed(bytes({BusProtocol::Command::Lights, 0, 0}), 200);
+  assert(digitalWrites.back() == std::make_pair(7, 0));
+  feed(bytes(drive(0, 0)), 300);
+  assert(receiverArmed && receiverActive && receivedAt == 300);
+  size_t targetCount = queued.size();
+  feed(bytes({BusProtocol::Command::Lights, 1, 0}), 400);
+  assert(receivedAt == 300 && queued.size() == targetCount);
+  feed(bytes({BusProtocol::Command::Lights, 1, 0}), 1300);
+  assert(!receiverArmed && !receiverActive && queued.size() == targetCount);
+  assert(!BusProtocol::valid({BusProtocol::Command::Lights, 2, 0}));
+  assert(!BusProtocol::valid({BusProtocol::Command::Lights, 1, 1}));
   assert(matrixBegins == 1);
-  testFraming(); testReceiver(); testActuators(); testControls(); testDisplay();
+  testFraming(); testReceiver(); testActuators(); testControls(); testDisplay(); testScanSchedule();
   std::cout << "Framing/CRC, arming, disconnect/stale stops, watchdog/rollover, actuator outputs, control curves and LED matrix passed\n";
 }

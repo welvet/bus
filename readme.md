@@ -9,7 +9,7 @@ USB belongs to S3. No Mac backend, Wi-Fi connection or credentials are needed.
 - `firmware/s3/s3.ino`: internal UART transport, sending control at 50 Hz.
 - `firmware/s3/xbox.cpp`: BLE connection, validated input reports, controller-loss
   handling and quiet USB logs. It exposes `xboxBegin`, `xboxPoll`, `xboxCommand`.
-- `firmware/s3/control.h`: steering/trigger curves, calibration and neutral arming.
+- `firmware/s3/control.h`: steering/trigger curves and neutral arming.
 - `firmware/shared/BusProtocol.h`: the same framing, commands, checksum and timeouts
   compiled into both chips. The flash script supplies this local Arduino library.
 - `firmware/bus/bus.ino`: serial reception and the restored motor/servo actuator
@@ -25,12 +25,17 @@ stronger trigger wins and equal pressures stop. Triggers have a 2% release zone,
 then quadratic output from a shared 30% minimum to 100%. The electrical motor
 sign matches the current motor mounting.
 
-Steering has a rescaled 12% deadzone and quadratic travel, from center minus 71
-through center plus 35 degrees, clipped to the servo's -90/+90 degree range.
-Press **Y** to capture the last steering target as center, then release the stick.
-Hold the center while returning to neutral. **B** resets center to zero. Buttons
-act once per press while armed. Trim is saved on S3 in NVS and survives restarts;
-full S3 image uploads erase it. The old Mac calibration file is not imported.
+Steering has a rescaled 12% deadzone and quadratic travel from -71 to +35 degrees,
+with a fixed center of zero. Face buttons do not calibrate or change steering.
+No steering trim is read or saved; previously stored trim is ignored.
+
+B toggles the headlights on each press (holding it does not repeat). Renesas
+D7 drives the XY-MOS TRIG/PWM input HIGH for on, LOW for off. Power the module
+and the two 5 V resistor-equipped LEDs from the servo's 5 V buck, with a common
+ground to Arduino; do not connect the buck's 5 V output to Arduino's 5 V pin.
+Lights start off when S3 starts and retain their setting across controller
+disconnects and motion stops. Reconnecting with B held does not toggle them;
+release and press again. Light state is independent of neutral motion arming.
 
 After startup, reconnection or input loss, center steering and release both
 triggers before control arms. The monitor prints only state transitions:
@@ -48,28 +53,37 @@ dumping raw inputs. Increasing worker age means the BLE worker is blocked or
 has not started; `initializing` distinguishes BLE startup from active scanning.
 `rx_ms` is the age of the last Xbox input report (`-1` means none), while `armed`
 shows whether S3 has accepted neutral controls and is allowing Drive commands.
-`BLE=input` only means an input report has been received during this connection;
-it does not establish that reports are still fresh.
+`BLE=input` means an input report has been received during this connection.
+An old `rx_ms` is normal when controls are unchanged; it does not trigger a stop.
 There are no raw input-value logs. A connected BLE link
 alone does not establish that valid input is arriving or that control is armed.
 Startup logs are buffered without waiting for a USB monitor. Press Enter in the
 monitor to print the current scanning/connected state again.
 Controller address: `40:8e:2c:32:c8:74`, configured in `firmware/s3/xbox.cpp`.
 
+Scanning runs continuously for the first 30 seconds after startup or disconnection.
+After that, S3 scans for 1 second every 5 seconds to reduce idle radio power;
+reconnection can consequently take several seconds longer. The schedule lives in
+`firmware/s3/scan.h`. UART Stop messages and the BLE worker heartbeat continue
+during the gaps. Scanning ends when a controller is found; connected control is
+unaffected. Both processors and the LED matrix remain powered during idle gaps.
+
 Stopping is enforced on both chips:
 
 - The BLE disconnect callback immediately invalidates control; S3 sends a Stop
   frame on the next main-loop iteration, and continues sending Stop at 50 Hz.
-- No valid 16-byte input report for **1000 ms**, or a BLE worker stalled for
-  **250 ms**, also disarms control. Old-session reports cannot arm a reconnection.
+- A BLE worker stalled for **250 ms** also disarms control. At least one valid
+  input report from the current connection is required. After that, unchanged
+  controls stay valid while BLE is connected and its worker is live; inactivity
+  is not a disconnect. Old-session reports cannot arm a reconnection.
 - Renesas stops motors and detaches servo pulses on Stop, or after **1000 ms**
   without accepted Drive frames. Its actuator task owns the timeout, independently
   of serial reception. Malformed traffic does not refresh it. Old queued targets
   are checked for expiry before application. After stop/timeout, moving commands
   are rejected until a zero-speed Drive frame arrives.
 
-Radio loss first has to be detected by BLE or the valid-report timeout; this is
-not a claim of instantaneous RF-loss detection. Detaching stops servo pulses and
+Radio loss first has to be detected by BLE link supervision; this is not a claim
+of instantaneous RF-loss detection. Detaching stops servo pulses and
 releases holding torque; it does not command the servo to return to center.
 
 ## Renesas LED matrix
@@ -108,13 +122,16 @@ Each frame is six bytes, serialized explicitly without C struct padding:
 | Bytes | Meaning |
 |---|---|
 | 0-1 | Header `A5 5A` |
-| 2 | `1` = Drive, `2` = Stop; reverse direction `3` = Applied, `4` = Stopped |
+| 2 | `1` = Drive, `2` = Stop, `5` = Lights; reverse direction `3` = Applied, `4` = Stopped |
 | 3 | Signed angle -90..90 (two's complement) |
 | 4 | Signed electrical speed -100..100 (two's complement) |
 | 5 | CRC-8, polynomial `07`, initial zero, over bytes 0-4 |
 
 Stop requires zero angle and speed; it disables outputs and detaches the servo.
 Drive with zero speed stops motors while keeping the commanded servo angle.
+Lights uses byte 3 as an absolute off/on value (0/1), with byte 4 zero. S3
+repeats it with each control frame, so dropped frames or a Renesas reset recover
+the selected light state. Lights frames never arm motion or refresh its watchdog.
 Unknown commands, invalid ranges, bad checksums and incomplete frames are ignored.
 The parser discards a partial frame after a 50 ms inter-byte gap and searches for
 headers again after corruption. No text logs are sent on this UART.
@@ -130,7 +147,7 @@ are ignored and cannot become control commands. S3 displays status once a second
 Renesas: tx=drive angle=0 speed=0 ack=applied rx_ms=37 angle=0 speed=0
 ```
 
-`tx=stop` means S3 is withholding control (check report freshness and neutral
+`tx=stop` means S3 is withholding control (check BLE link/worker and neutral
 arming). `ack=missing` means no valid Renesas status arrived in the last second;
 it does not prove which part of the UART/firmware path failed. `ack=stopped`
 means Renesas reports its disabled state. `ack=applied` confirms software target
@@ -182,9 +199,10 @@ make test
 ```
 
 Host tests cover CRC/framing/resynchronization, invalid ranges, arming,
-disconnection/stale-input stops, watchdog expiry with the serial task idle,
+held controls without repeated notifications, disconnection/worker-stall stops,
+watchdog expiry with the serial task idle,
 rollover, unchanged outputs, stale queued targets, steering/trigger curves and
-calibration and LED matrix speed/direction/angle/stopped patterns. These tests do
+fixed steering center and LED matrix speed/direction/angle/stopped patterns. These tests do
 not establish physical motor/servo performance or confirm timer behavior on board.
 The separate S3 startup test verifies boot/reset pin initialization before USB,
 startup without an attached USB host, and Stop transmission before Xbox startup.
@@ -196,7 +214,7 @@ No GitHub Actions workflow is present.
 The stock 0.6.1 image and official reboot utility are cached/downloaded under
 `.build/recovery/stock`; the image's SHA-256 is checked. The flash script finds
 esptool from the installed core or local cache. A custom merged image replaces
-all S3 partitions/data, including trim/bonding storage. Renesas bootloader and
+all S3 partitions/data, including bonding storage. Renesas bootloader and
 eFuses are not rewritten.
 
 If automatic S3 download entry fails, unplug USB, short **Download to GND** on the
@@ -212,6 +230,7 @@ of the original board image exists; the official recovery image is cached.
 | D5 / D6 | DRV8833 IN1 / IN2, motor 1 |
 | D9 / D10 | DRV8833 IN3 / IN4, motor 2 |
 | D13 | MG90S servo signal, 500-2500 microsecond pulses |
+| D7 | Headlight XY-MOS TRIG/PWM, active HIGH |
 | GND | Common signal/power ground |
 
 Recorded power: power bank -> verified 9 V PD trigger -> Arduino VIN and buck

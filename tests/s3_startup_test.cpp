@@ -39,23 +39,30 @@ struct HardwareSerial {
 void xboxBegin() { calls.push_back({"xbox",0,0}); }
 void xboxPoll() {}
 void xboxPrintStatus() {}
+bool xboxLights() { return false; }
 BusProtocol::Frame xboxCommand() { return BusProtocol::stop(); }
 #include "../firmware/s3/s3.ino"
 
 int main() {
   setup();
-  assert(calls.size() == 8);
+  assert(calls.size() == 9);
   assert(calls[0].name == "mode" && calls[0].pin == 9 && calls[0].value == OUTPUT);
   assert(calls[1].name == "mode" && calls[1].pin == 4 && calls[1].value == OUTPUT);
   assert(calls[2].name == "write" && calls[2].pin == 9 && calls[2].value == HIGH);
   assert(calls[3].name == "write" && calls[3].pin == 4 && calls[3].value == HIGH);
   assert(calls[4].name == "usb" && calls[5].name == "uart");
-  assert(calls[6].name == "send" && calls[7].name == "xbox");
+  assert(calls[6].name == "send" && calls[7].name == "send" && calls[8].name == "xbox");
   assert(usbChecks == 0 && clockMs == 0);
   BusProtocol::Parser parser;
   BusProtocol::Frame frame;
   bool ready = false;
-  for (auto byte : transmitted) ready = parser.push(byte,0,frame) || ready;
+  assert(transmitted.size() == 2 * BusProtocol::frameSize);
+  for (size_t i = 0; i < BusProtocol::frameSize; ++i)
+    ready = parser.push(transmitted[i],0,frame) || ready;
   assert(ready && frame.command == BusProtocol::Command::Stop);
+  ready = false;
+  parser = BusProtocol::Parser{};
+  for (auto byte : transmitted) ready = parser.push(byte,0,frame) || ready;
+  assert(ready && frame.command == BusProtocol::Command::Lights && frame.angle == 0);
   std::cout << "S3 boot/reset initialization, absent USB and startup Stop passed\n";
 }

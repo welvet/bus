@@ -1,8 +1,9 @@
 #include "xbox.h"
 #include "control.h"
+#include "scan.h"
+#include "lights.h"
 
 #include <Arduino.h>
-#include <Preferences.h>
 #include <XboxSeriesXControllerESP32_asukiaaa.hpp>
 #include <atomic>
 #include <freertos/FreeRTOS.h>
@@ -21,8 +22,8 @@ std::atomic<Stage> stage{Stage::Starting};
 std::atomic<Failure> failure{Failure::None};
 std::atomic<unsigned> seen{0}, failedAttempts{0};
 Control::State control;
-Preferences preferences;
-bool preferencesOpen = false;
+LightSwitch lightSwitch;
+std::atomic<bool> lightsOn{false};
 
 void logEvent(Event event) { xQueueSend(events, &event, 0); }
 
@@ -54,6 +55,7 @@ void inputReceived(NimBLERemoteCharacteristic*, uint8_t* data, size_t length, bo
   XboxControllerNotificationParser parsed;
   if (parsed.update(data, length) != 0) return;
   if (!linked.load() || session != generation.load()) return;
+  lightsOn.store(lightSwitch.update(parsed.btnB, session));
   XboxInput input;
   input.connected = true;
   input.reportAt = millis();
@@ -62,8 +64,6 @@ void inputReceived(NimBLERemoteCharacteristic*, uint8_t* data, size_t length, bo
   input.steering = parsed.joyLHori;
   input.leftTrigger = parsed.trigLT;
   input.rightTrigger = parsed.trigRT;
-  input.calibrate = parsed.btnY;
-  input.reset = parsed.btnB;
   xQueueOverwrite(inputs, &input);
 }
 
@@ -96,10 +96,38 @@ void xboxTask(void*) {
   controller.begin();
   uint32_t subscribedSession = UINT32_MAX;
   uint32_t checkedAt = 0;
+  ScanSchedule scans;
+  scans.reset(millis());
+  uint32_t scanSession = generation.load();
   for (;;) {
+    uint32_t now = millis();
+    uint32_t currentSession = generation.load();
+    if (currentSession != scanSession) {
+      scans.reset(now);
+      scanSession = currentSession;
+    }
     stage.store(linked.load() ? Stage::Waiting :
                 NimBLEDevice::getScan()->isScanning() ? Stage::Scanning : Stage::Polling);
-    controller.onLoop(); // Connection/discovery cannot block the UART main loop.
+    // Only delay starting a new scan. Always process a discovered controller
+    // immediately, even if its advertisement arrived at the end of a scan.
+    bool startingScan = !controller.isConnected() &&
+                        !NimBLEDevice::getScan()->isScanning() &&
+                        XboxSeriesXControllerESP32_asukiaaa::advDevice == nullptr;
+    if (!startingScan || scans.due(now)) {
+      if (startingScan) {
+        // Mirror the library's scan configuration, with our own duration.
+        auto* scan = NimBLEDevice::getScan();
+        scan->setDuplicateFilter(false);
+        scan->setScanCallbacks(controller.scanCBs);
+        scan->setInterval(97);
+        scan->setWindow(97);
+        scan->start(scans.duration(now));
+        scans.begin(now);
+      } else if (controller.isConnected() ||
+                 XboxSeriesXControllerESP32_asukiaaa::advDevice != nullptr) {
+        controller.onLoop(); // Discovery cannot block the UART main loop.
+      }
+    }
     failedAttempts.store(controller.getCountFailedConnection());
     uint32_t session = generation.load();
     if (linked.load() && session != subscribedSession) {
@@ -130,10 +158,6 @@ void xboxTask(void*) {
 
 void xboxBegin() {
   if (events) return;
-  preferencesOpen = preferences.begin("bus-steering", false);
-  int savedTrim = preferencesOpen ? preferences.getInt("trim", 0) : 0;
-  control.trim = savedTrim < -90 || savedTrim > 90 ? 0 : savedTrim;
-  control.lastAngle = control.trim;
   events = xQueueCreate(8, sizeof(Event));
   inputs = xQueueCreate(1, sizeof(XboxInput));
   if (!events || !inputs) {
@@ -189,8 +213,7 @@ BusProtocol::Frame xboxCommand() {
   if (!inputs || xQueuePeek(inputs, &input, 0) != pdTRUE || !linked.load() ||
       input.session != generation.load()) input.connected = false;
   input.updatedAt = workerAt.load();
-  int oldTrim = control.trim;
-  auto command = Control::update(control, input, millis());
-  if (preferencesOpen && oldTrim != control.trim) preferences.putInt("trim", control.trim);
-  return command;
+  return Control::update(control, input, millis());
 }
+
+bool xboxLights() { return lightsOn.load(); }
