@@ -12,7 +12,7 @@
 struct EndTask {};
 using TickType_t = uint32_t;
 using QueueHandle_t = void*;
-constexpr int LOW = 0, OUTPUT = 1, pdTRUE = 1, pdFALSE = 0, pdPASS = 1;
+constexpr int HIGH = 1, LOW = 0, OUTPUT = 1, pdTRUE = 1, pdFALSE = 0, pdPASS = 1;
 constexpr uint32_t portMAX_DELAY = UINT32_MAX;
 uint32_t clockMs = 0;
 uint32_t millis() { return clockMs; }
@@ -35,7 +35,7 @@ struct MockSerial {
   size_t write(const uint8_t* bytes, size_t count) {
     output.insert(output.end(), bytes, bytes + count); return count;
   }
-} Serial;
+} Serial, Serial1;
 struct Servo {
   bool enabled = false;
   bool attached() const { return enabled; }
@@ -86,7 +86,8 @@ int xQueuePeek(QueueHandle_t queue, void* destination, uint32_t) {
 }
 void runActuators() { try { actuatorTask(nullptr); } catch (const EndTask&) {} }
 void resetReceiver() {
-  parser = BusProtocol::Parser{}; receiverArmed = receiverActive = false; receivedAt = 0;
+  parser = BusProtocol::Parser{}; cameraParser = BusProtocol::Parser{}; priority = Priority::State{};
+  lightState = Priority::Lights{}; lightsOn = false; Serial1.input.clear();
   Serial.input.clear(); queued.clear();
 }
 std::vector<uint8_t> bytes(BusProtocol::Frame frame) {
@@ -147,12 +148,12 @@ void testReceiver() {
   resetReceiver();
   feed(bytes({BusProtocol::Command::Applied,0,0}),0);
   feed(bytes({BusProtocol::Command::Stopped,0,0}),0);
-  assert(queued.empty() && !receiverArmed); // Replies cannot act as control commands.
+  assert(queued.empty() && !priority.controller.armed); // Replies cannot act as control commands.
   feed(bytes(drive(0, 100)), 0); assert(queued.empty()); // Startup must first stop.
   feed(bytes(drive(10, 0)), 10); assert(queued.size() == 1 && queued.back().enabled);
   feed(bytes(drive(-90, -100)), 20); assert(queued.back().motorPwm == -255 && queued.back().servoAngle == 0);
   auto bad = bytes(drive(0,100)); bad.back() ^= 1;
-  feed(bad, 500); assert(receivedAt == 20);
+  feed(bad, 500); assert(priority.receivedAt == 20);
   feed(bytes(drive(90, 100)), 1019); assert(queued.back().motorPwm == 255 && queued.back().servoAngle == 180);
   feed(bytes(BusProtocol::stop()), 1020); assert(!queued.back().enabled);
   size_t count = queued.size(); feed(bytes(drive(0,100)), 1021); assert(queued.size() == count);
@@ -162,12 +163,12 @@ void testReceiver() {
   feed(bytes(drive(0,0)), 2024); assert(queued.back().enabled);
   resetReceiver();
   feed(bytes(drive(0,0)), UINT32_MAX - 100);
-  feed({}, 899); assert(!receiverArmed); // Exactly 1000 ms across rollover.
+  feed({}, 899); assert(!priority.controller.armed); // Exactly 1000 ms across rollover.
 }
 void resetActuators(uint32_t now = 0) {
   clockMs = now; pwmWrites.clear(); servoWrites.clear(); detachedAt.clear();
   attaches = 0; writeCounts.clear(); waits.clear(); arrivals.clear(); slowServo = false;
-  feedbackFrames.clear(); Serial.output.clear();
+  feedbackFrames.clear(); Serial.output.clear(); Serial1.output.clear();
 }
 void testActuators() {
   resetActuators();
@@ -193,8 +194,11 @@ void testActuators() {
   auto expected = bytes({BusProtocol::Command::Stopped,0,0});
   auto lightReply = bytes({BusProtocol::Command::LightsApplied,0,0});
   expected.insert(expected.end(), lightReply.begin(), lightReply.end());
+  auto modeReply = bytes({BusProtocol::Command::Mode,0,0});
+  expected.insert(expected.end(), modeReply.begin(), modeReply.end());
   assert(Serial.output == expected);
-  sendStatus(); assert(Serial.output.size() == 2 * BusProtocol::frameSize); // Rate limited.
+  assert(Serial1.output == expected);
+  sendStatus(); assert(Serial.output.size() == 3 * BusProtocol::frameSize); // Rate limited.
   assert((pwmWrites[pwmWrites.size()-1] == std::pair<int,int>{10,0}));
   resetActuators(1500); arrivals = {{1500,{255,90,true,0},false}, {1600,{},true}};
   runActuators(); assert(attaches == 0 && pwmWrites.empty()); // Stale queued drive never applies.
@@ -287,6 +291,122 @@ void testControls() {
   assert(Control::update(state,input,3600001).command == BusProtocol::Command::Stop);
   input.steering = 32768; input.rightTrigger = 0;
   assert(Control::update(state,input,3600001).command == BusProtocol::Command::Drive);
+  input.automatic = true;
+  assert(Control::update(state,input,3600001).command == BusProtocol::Command::Auto);
+  assert(Control::update(state,input,3600001).command == BusProtocol::Command::Auto); // Held A = on only.
+  input.steering = 65535;
+  assert(Control::update(state,input,3600001).command == BusProtocol::Command::Drive);
+  input.steering = 32768; input.rightTrigger = 1023;
+  assert(Control::update(state,input,3600001).command == BusProtocol::Command::Drive);
+  input.rightTrigger = 0; input.connected = false;
+  assert(Control::update(state,input,3600001).command == BusProtocol::Command::Stop);
+}
+
+void cameraFeed(BusProtocol::Frame frame, uint32_t now) {
+  auto data = bytes(frame);
+  Serial1.input.insert(Serial1.input.end(), data.begin(), data.end());
+  feed({}, now);
+}
+void testPriority() {
+  using BusProtocol::Command;
+  const BusProtocol::Frame automatic = {Command::Auto,0,0};
+  resetReceiver();
+  cameraFeed(drive(0,-50), 10);
+  assert(!priority.automatic && queued.empty()); // Camera cannot drive at boot.
+  cameraFeed(automatic, 20); // Fully remote: controller has never connected.
+  assert(priority.automatic && !queued.back().enabled && lightsOn);
+  uint32_t blinkStart = lightState.startedAt;
+  cameraFeed(automatic, 30);
+  assert(lightState.startedAt == blinkStart && queued.size() == 1);
+  cameraFeed(drive(0,-50), 40);
+  assert(queued.size() == 1); // Camera must arm at zero speed after entry.
+  cameraFeed(drive(0,0), 50);
+  cameraFeed(drive(10,-50), 60);
+  assert(queued.back().enabled && queued.back().motorPwm == -127);
+  size_t count = queued.size();
+  feed(bytes(automatic), 65);
+  assert(queued.size() == count && priority.receivedAt == 60); // Repeated A cannot interrupt auto motion.
+  feed(bytes(drive(0,0)), 70);
+  feed(bytes(BusProtocol::stop()), 80); // Xbox disconnect must not stop auto.
+  assert(priority.automatic && priority.receivedAt == 60 && queued.size() == count);
+  feed(bytes({Command::Lights,1,0}), 90);
+  cameraFeed({Command::Mode,0,0}, 100); // Replies cannot act as requests.
+  cameraFeed({Command::Lights,0,0}, 110); // Camera cannot take over headlight setting.
+  assert(lightState.saved && priority.receivedAt == 60);
+  feed({}, 1060);
+  assert(!priority.active && !priority.camera.armed && priority.automatic);
+  cameraFeed(drive(0,-100), 1061);
+  assert(queued.size() == count); // Camera silence expires arming; no cached restart.
+  cameraFeed(drive(0,0), 1062);
+  cameraFeed(drive(0,-50), 1063);
+  cameraFeed(BusProtocol::stop(), 1064);
+  assert(!queued.back().enabled && priority.automatic);
+  cameraFeed(drive(0,-50), 1065);
+  assert(!queued.back().enabled);
+  cameraFeed(drive(0,0), 1066);
+  cameraFeed(drive(0,-50), 1067);
+  // A nonzero unarmed manual command still cancels auto, but cannot drive.
+  feed(bytes(drive(0,100)), 1070);
+  assert(!priority.automatic && !queued.back().enabled);
+  cameraFeed(automatic, 1071); // Camera Auto cannot fight a held controller input.
+  assert(!priority.automatic);
+  feed(bytes(drive(0,0)), 1072);
+  feed(bytes(drive(15,100)), 1073);
+  assert(queued.back().motorPwm == 255 && !priority.automatic);
+  count = queued.size();
+  cameraFeed(drive(0,0), 1074);
+  cameraFeed(drive(0,-100), 1075);
+  assert(queued.size() == count); // Old camera Drive cannot regain control.
+  feed(bytes(drive(0,0)), 1076);
+  feed(bytes(automatic), 1077);
+  assert(priority.automatic && !queued.back().enabled);
+  cameraFeed(drive(0,0), 1078);
+  cameraFeed(drive(0,-50), 1079);
+  feed(bytes(drive(-10,0)), 1080); // Steering-only input also wins.
+  assert(!priority.automatic && queued.back().enabled && queued.back().servoAngle == 80);
+  // Real dual-UART arbitration: consume controller input first in the same tick.
+  feed(bytes(automatic), 1081);
+  auto camAuto = bytes(automatic);
+  Serial1.input.insert(Serial1.input.end(), camAuto.begin(), camAuto.end());
+  feed(bytes(drive(0,100)), 1082);
+  assert(!priority.automatic && queued.back().motorPwm == 255);
+  // Holding A for a long time keeps neutral/manual readiness, without feeding motion.
+  resetReceiver();
+  for (uint32_t now : {10u, 1010u, 2010u}) feed(bytes(automatic), now);
+  assert(priority.automatic && priority.controller.armed && !priority.active);
+  feed(bytes(drive(0,100)), 2011);
+  assert(!priority.automatic && queued.back().enabled && queued.back().motorPwm == 255);
+  // Independent UART parsers: a partial controller frame cannot consume camera bytes.
+  resetReceiver();
+  auto partial = bytes(drive(0,0)); partial.resize(3);
+  feed(partial, 20);
+  cameraFeed(automatic, 21);
+  assert(priority.automatic);
+  cameraFeed(drive(0,0), 22);
+  cameraFeed(drive(0,-50), 23);
+  uint32_t acceptedAt = priority.receivedAt;
+  auto corrupt = bytes(drive(0,-100)); corrupt.back() ^= 1;
+  Serial1.input.insert(Serial1.input.end(), corrupt.begin(), corrupt.end());
+  feed({}, 24);
+  assert(priority.receivedAt == acceptedAt);
+  resetReceiver();
+  cameraFeed(automatic, UINT32_MAX - 200);
+  cameraFeed(drive(0,0), UINT32_MAX - 199);
+  cameraFeed(drive(0,-100), UINT32_MAX - 100);
+  feed({}, 899);
+  assert(priority.automatic && !priority.active && !priority.camera.armed);
+  assert(!BusProtocol::valid({Command::Auto,1,0}));
+  assert(!BusProtocol::valid({Command::Mode,2,0}));
+  Priority::Lights lights;
+  lights.enteredAuto(UINT32_MAX - 100);
+  assert(lights.output(UINT32_MAX - 100));
+  assert(!lights.output(49));
+  assert(lights.output(199));
+  assert(!lights.output(349));
+  lights.saved = true;
+  assert(lights.output(499) && !lights.blinking); // Restore saved on state after two flashes.
+  lights.enteredAuto(1000); lights.manual(); lights.saved = false;
+  assert(!lights.output(1001));
 }
 #include "../firmware/s3/scan.h"
 void testScanSchedule() {
@@ -324,19 +444,19 @@ int main() {
   resetReceiver();
   feed(bytes({BusProtocol::Command::Lights, 1, 0}), 100);
   assert(digitalWrites.back() == std::make_pair(7, 1));
-  assert(!receiverArmed && !receiverActive && queued.empty());
+  assert(!priority.controller.armed && !priority.active && queued.empty());
   feed(bytes({BusProtocol::Command::Lights, 0, 0}), 200);
   assert(digitalWrites.back() == std::make_pair(7, 0));
   feed(bytes(drive(0, 0)), 300);
-  assert(receiverArmed && receiverActive && receivedAt == 300);
+  assert(priority.controller.armed && priority.active && priority.receivedAt == 300);
   size_t targetCount = queued.size();
   feed(bytes({BusProtocol::Command::Lights, 1, 0}), 400);
-  assert(receivedAt == 300 && queued.size() == targetCount);
+  assert(priority.receivedAt == 300 && queued.size() == targetCount);
   feed(bytes({BusProtocol::Command::Lights, 1, 0}), 1300);
-  assert(!receiverArmed && !receiverActive && queued.size() == targetCount);
+  assert(!priority.controller.armed && !priority.active && queued.size() == targetCount);
   assert(!BusProtocol::valid({BusProtocol::Command::Lights, 2, 0}));
   assert(!BusProtocol::valid({BusProtocol::Command::Lights, 1, 1}));
   assert(matrixBegins == 1);
-  testFraming(); testReceiver(); testActuators(); testControls(); testDisplay(); testScanSchedule();
-  std::cout << "Framing/CRC, arming, disconnect/stale stops, watchdog/rollover, actuator outputs, control curves and LED matrix passed\n";
+  testPriority(); testFraming(); testReceiver(); testActuators(); testControls(); testDisplay(); testScanSchedule();
+  std::cout << "Framing/CRC, arming, dual-UART priority/auto/manual takeover, blink timing, disconnect/stale stops, watchdog/rollover, actuator outputs, control curves and LED matrix passed\n";
 }

@@ -48,6 +48,8 @@ inline BusProtocol::Frame update(State& state, const XboxInput& input, uint32_t 
   if (!state.armed && stick == 0 && input.leftTrigger <= 20 && input.rightTrigger <= 20)
     state.armed = true;
   if (!state.armed) return BusProtocol::stop();
+  if (input.automatic && stick == 0 && input.leftTrigger <= 20 && input.rightTrigger <= 20)
+    return {BusProtocol::Command::Auto, 0, 0}; // Enable only; holding A is idempotent.
   // Electrical direction matches the existing motor mounting.
   return {BusProtocol::Command::Drive, angle(stick), -speed(input.leftTrigger, input.rightTrigger)};
 }

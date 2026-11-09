@@ -2,6 +2,7 @@
 #include <Servo.h>
 #include <BusProtocol.h>
 #include "display.h"
+#include "priority.h"
 
 struct Target {
   int motorPwm;
@@ -11,9 +12,10 @@ struct Target {
 };
 QueueHandle_t targets;
 QueueHandle_t feedback;
-BusProtocol::Parser parser;
-bool receiverArmed = false, receiverActive = false, lightsOn = false;
-uint32_t receivedAt = 0;
+BusProtocol::Parser parser, cameraParser;
+Priority::State priority;
+Priority::Lights lightState;
+bool lightsOn = false;
 uint32_t reportedAt = 0;
 
 void setMotors(int pwm) {
@@ -57,36 +59,45 @@ void actuatorTask(void*) {
   }
 }
 
-void receiveSerial() {
+void receiveFrame(Priority::Source source, const BusProtocol::Frame& frame) {
   uint32_t now = millis();
-  if (receiverActive && uint32_t(now - receivedAt) >= BusProtocol::timeoutMs) {
-    receiverActive = receiverArmed = false;
+  if (source == Priority::Source::Controller && frame.command == BusProtocol::Command::Lights) {
+    lightState.saved = frame.angle != 0;
+    return; // Lighting never refreshes the actuator watchdog.
   }
-  // Bound work so garbage traffic cannot prevent timeout/arming checks.
-  for (int i = 0; i < 64 && Serial.available() > 0; ++i) {
-    BusProtocol::Frame frame;
-    if (!parser.push(uint8_t(Serial.read()), millis(), frame)) continue;
-    if (frame.command == BusProtocol::Command::Lights) {
-      lightsOn = frame.angle != 0;
-      digitalWrite(7, frame.angle); // Active-high XY-MOS trigger; independent of motion.
-      continue; // Light traffic must never feed the motor watchdog.
-    }
-    if (frame.command != BusProtocol::Command::Drive && frame.command != BusProtocol::Command::Stop) continue;
-    now = millis();
-    if (receiverActive && uint32_t(now - receivedAt) >= BusProtocol::timeoutMs)
-      receiverActive = receiverArmed = false;
+  bool wasAuto = priority.automatic;
+  BusProtocol::Frame selected;
+  if (priority.receive(source, frame, now, selected)) {
     Target target = {0, 90, false, now};
-    if (frame.command == BusProtocol::Command::Stop) {
-      receiverActive = receiverArmed = false;
-    } else {
-      // After boot/stop/timeout, ignore moving commands until a zero-speed one.
-      if (!receiverArmed && frame.speed != 0) continue;
-      receiverActive = receiverArmed = true;
-      receivedAt = now;
-      target = {frame.speed * 255 / 100, frame.angle + 90, true, now};
-    }
+    if (selected.command == BusProtocol::Command::Drive)
+      target = {selected.speed * 255 / 100, selected.angle + 90, true, now};
     xQueueOverwrite(targets, &target);
   }
+  if (wasAuto != priority.automatic) {
+    if (priority.automatic) lightState.enteredAuto(now);
+    else lightState.manual();
+  }
+}
+
+void updateLights() {
+  bool value = lightState.output(millis());
+  if (value != lightsOn) { digitalWrite(7, value ? HIGH : LOW); lightsOn = value; }
+}
+
+template<typename Port>
+void receivePort(Port& port, BusProtocol::Parser& decoder, Priority::Source source) {
+  for (int i = 0; i < 64 && port.available() > 0; ++i) {
+    BusProtocol::Frame frame;
+    if (decoder.push(uint8_t(port.read()), millis(), frame)) receiveFrame(source, frame);
+  }
+}
+
+void receiveSerial() {
+  priority.expire(millis());
+  // Controller first; current manual demand also rejects camera Auto requests.
+  receivePort(Serial, parser, Priority::Source::Controller);
+  receivePort(Serial1, cameraParser, Priority::Source::Camera);
+  updateLights();
 }
 
 void sendStatus() {
@@ -97,6 +108,12 @@ void sendStatus() {
     displayShow(status.speed, status.angle, status.command == BusProtocol::Command::Applied, lightsOn);
     BusProtocol::Frame lights = {BusProtocol::Command::LightsApplied, lightsOn ? 1 : 0, 0};
     if (BusProtocol::encode(lights, bytes)) Serial.write(bytes, sizeof(bytes));
+    BusProtocol::Frame mode = {BusProtocol::Command::Mode, priority.automatic ? 1 : 0, 0};
+    if (BusProtocol::encode(mode, bytes)) Serial.write(bytes, sizeof(bytes));
+    // Both links get the same applied motion, physical light output and mode.
+    for (const auto& reply : {status, lights, mode}) {
+      if (BusProtocol::encode(reply, bytes)) Serial1.write(bytes, sizeof(bytes));
+    }
     reportedAt = millis();
   }
 }
@@ -110,6 +127,7 @@ void setup() {
   for (uint8_t pin : pins) { pinMode(pin, OUTPUT); digitalWrite(pin, LOW); }
   displayBegin();
   Serial.begin(BusProtocol::baud);
+  Serial1.begin(BusProtocol::baud); // D0 RX / D1 TX, external camera via level shifter.
   targets = xQueueCreate(1, sizeof(Target));
   feedback = xQueueCreate(1, sizeof(BusProtocol::Frame));
   if (!targets || !feedback || xTaskCreate(serialTask, "serial", 1024, nullptr, 1, nullptr) != pdPASS ||
