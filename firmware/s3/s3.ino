@@ -13,6 +13,8 @@ uint32_t replyAt = 0;
 bool haveReply = false;
 bool reportedLights = false, haveLightReply = false;
 uint32_t lightReplyAt = 0;
+bool automaticMode = false, haveMode = false;
+uint32_t modeAt = 0;
 
 void sendCommand(const BusProtocol::Frame& command) {
   uint8_t bytes[BusProtocol::frameSize];
@@ -44,7 +46,11 @@ void loop() {
   for (int i = 0; i < 64 && busSerial.available() > 0; ++i) {
     BusProtocol::Frame reply;
     if (!replies.push(uint8_t(busSerial.read()), millis(), reply)) continue;
-    if (reply.command == BusProtocol::Command::LightsApplied) {
+    if (reply.command == BusProtocol::Command::Mode) {
+      automaticMode = reply.angle != 0;
+      haveMode = true;
+      modeAt = millis();
+    } else if (reply.command == BusProtocol::Command::LightsApplied) {
       reportedLights = reply.angle != 0;
       haveLightReply = true;
       lightReplyAt = millis();
@@ -62,6 +68,8 @@ void loop() {
   }
   if (uint32_t(millis() - pingAt) >= 1000) {
     xboxPrintStatus();
+    Serial.printf("Mode: %s\n", !haveMode || uint32_t(millis() - modeAt) >= BusProtocol::timeoutMs
+      ? "unknown" : automaticMode ? "auto" : "manual");
     Serial.printf("Lights: requested=%s D7=%s rx_ms=%ld\n", xboxLights() ? "on" : "off",
                   !haveLightReply || uint32_t(millis() - lightReplyAt) >= BusProtocol::timeoutMs
                     ? "unknown" : reportedLights ? "HIGH" : "LOW",
@@ -69,7 +77,8 @@ void loop() {
     const char* ack = !haveReply || uint32_t(millis() - replyAt) >= BusProtocol::timeoutMs
         ? "missing" : lastReply.command == BusProtocol::Command::Applied ? "applied" : "stopped";
     Serial.printf("Renesas: tx=%s angle=%d speed=%d ack=%s rx_ms=%ld angle=%d speed=%d\n",
-                  lastSent.command == BusProtocol::Command::Drive ? "drive" : "stop",
+                  lastSent.command == BusProtocol::Command::Drive ? "drive" :
+                  lastSent.command == BusProtocol::Command::Auto ? "auto" : "stop",
                   lastSent.angle, lastSent.speed, ack,
                   haveReply ? static_cast<long>(uint32_t(millis() - replyAt)) : -1L,
                   lastReply.angle, lastReply.speed);

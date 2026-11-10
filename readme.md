@@ -2,7 +2,8 @@
 
 Arduino Uno R4 WiFi: the onboard ESP32-S3 reads an Xbox BLE controller and sends
 serial commands to the Renesas RA4M1, which controls both motors and the servo.
-USB belongs to S3. No Mac backend, Wi-Fi connection or credentials are needed.
+USB belongs to S3. Manual driving needs no backend, Wi-Fi or credentials.
+The auto-control draft also accepts camera-ESP motion on a separate wired UART.
 
 ## Firmware
 
@@ -14,6 +15,8 @@ USB belongs to S3. No Mac backend, Wi-Fi connection or credentials are needed.
   compiled into both chips. The flash script supplies this local Arduino library.
 - `firmware/bus/bus.ino`: serial reception and the restored motor/servo actuator
   task, with an independent input watchdog. No network task or credentials.
+- `firmware/bus/priority.h`: Renesas-owned manual/auto selection, per-source
+  arming and nonblocking auto-entry headlight indication.
 - `firmware/bus/display.cpp`: built-in 12x8 LED matrix display of software-applied
   speed, servo angle and stopped state; its pixel layout is in `display.h`.
 - `firmware/bus/bus.ino.old`: unchanged archive of the previous UDP firmware.
@@ -25,7 +28,7 @@ stronger trigger wins and equal pressures stop. Triggers have a 2% release zone,
 then quadratic output from a shared 30% minimum to 100%. The electrical motor
 sign matches the current motor mounting.
 
-Steering has a rescaled 12% deadzone and quadratic travel from -71 to +35 degrees,
+Steering has a rescaled 12% deadzone and symmetric quadratic travel from -50 to +50 degrees,
 with a fixed center of zero. Face buttons do not calibrate or change steering.
 No steering trim is read or saved; previously stored trim is ignored.
 
@@ -44,7 +47,11 @@ The serial task owns runtime matrix updates (10 Hz); actuator stopping remains
 independent of display and UART work.
 
 After startup, reconnection or input loss, center steering and release both
-triggers before control arms. The monitor prints only state transitions:
+triggers before Xbox control arms. A requests auto while controls are neutral;
+holding or repeatedly pressing it enables auto, never toggles it off. Moving
+with A held sends manual Drive instead. Releasing movement with A still held
+requests auto again; release A if you want to remain manual.
+The connection transition logs are:
 
 ```text
 Xbox: scanning
@@ -82,8 +89,9 @@ Stopping is enforced on both chips:
   input report from the current connection is required. After that, unchanged
   controls stay valid while BLE is connected and its worker is live; inactivity
   is not a disconnect. Old-session reports cannot arm a reconnection.
-- Renesas stops motors and detaches servo pulses on Stop, or after **1000 ms**
-  without accepted Drive frames. Its actuator task owns the timeout, independently
+- Renesas stops motors and detaches servo pulses on the selected source's Stop,
+  or after **1000 ms** without accepted Drive frames from that source.
+  Its actuator task owns the timeout, independently
   of serial reception. Malformed traffic does not refresh it. Old queued targets
   are checked for expiry before application. After stop/timeout, moving commands
   are rejected until a zero-speed Drive frame arrives.
@@ -91,6 +99,59 @@ Stopping is enforced on both chips:
 Radio loss first has to be detected by BLE link supervision; this is not a claim
 of instantaneous RF-loss detection. Detaching stops servo pulses and
 releases holding torque; it does not command the servo to return to center.
+
+## Auto-control draft
+
+Renesas boots in **manual** mode. It arbitrates the existing onboard S3 link
+(`Serial`, controller) and a new camera link (`Serial1`, D0 RX / D1 TX), both
+115200 baud, 8N1. Connect camera TX -> D0/RX and camera RX <- D1/TX through a
+3.3 V / 5 V logic-level converter; share GND. D0/D1 carry 5 V logic on the Uno.
+The camera is powered separately from the 5 V buck, not from a signal pin.
+
+| Event | Renesas behavior |
+|---|---|
+| Controller A / `Auto` | Enter auto, stop old motion and wait for camera arming. Repeats are idempotent. |
+| Camera `Auto` | Same explicit activation, allowing use without Xbox. Rejected while fresh nonzero manual demand exists. |
+| Nonzero controller Drive angle or speed | Switch to manual immediately; camera Drive is ignored. Existing manual neutral arming still applies. |
+| Neutral controller Drive while auto | Ignore for motion/watchdog; maintain manual readiness. |
+| Controller Stop/disconnect while auto | Ignore for camera motion; auto remains usable without Xbox. |
+| Camera Drive while manual | Ignore for motion; never implicitly activate auto. |
+| Selected-source Stop or 1000 ms Drive timeout | Disable motors/servo and require a zero-speed Drive before motion resumes. Mode stays selected. |
+
+Mode entry stops the previous source; no inactive motion target is cached for
+later execution. The camera must send a zero-speed Drive after entering auto
+and after its Stop/timeout. Neutral controller frames, Auto requests, lighting,
+status and invalid traffic cannot keep camera motion alive. The actuator task's
+independent watchdog and stale-target checks remain in effect if reception stalls.
+Controller input is processed before camera input each serial-task iteration;
+a fresh nonzero manual demand blocks camera Auto requests until neutral, Stop,
+or expiry. Only an explicit Auto can enable auto after manual override.
+
+Headlights blink twice (150 ms on/off phases) on an actual transition into auto,
+without delays. Repeated Auto does not restart the blink. B's saved light state
+is restored afterward; returning to manual cancels the blink. Both UARTs receive
+Applied/Stopped, LightsApplied and Mode every 100 ms. USB prints
+`Mode: manual`, `Mode: auto` or `Mode: unknown` when mode feedback is stale.
+
+**Camera/backend contract for the next implementation:** the camera ESP owns UDP
+sessions, increasing sequence IDs, duplicate/reorder rejection, sequence queues,
+step durations in **milliseconds** and backend heartbeat expiry. It emits ordinary
+Drive frames at 50 Hz while a step is valid, and Stop at sequence completion or
+backend timeout. The motion payload is the existing absolute angle in degrees
+and signed electrical motor percentage (negative is forward on this toy), with
+no additional manual curve or 30% minimum applied by Renesas.
+
+The camera must read Mode, discard its pending plan on manual override, and
+require fresh explicit activation before sending Auto again. Auto must never
+be automatically prepended to every Drive or replayed from a pending sequence.
+After activation, start from a fresh plan; after reconnect/reboot, discard old
+plans and use a new backend session. The six-byte UART protocol has no session
+or sequence IDs and cannot itself distinguish a stale Auto packet or stale
+camera plan from a new one. These protections belong in camera/backend firmware.
+This PR implements neither that firmware nor video/Wi-Fi/UDP. No camera board or
+dual-UART hardware behavior has been verified; keep power disconnected for initial
+communication tests. A failed camera process must stop forwarding Drive, rather
+than blindly refreshing an old backend command.
 
 ## Renesas LED matrix
 
@@ -128,12 +189,15 @@ Each frame is six bytes, serialized explicitly without C struct padding:
 | Bytes | Meaning |
 |---|---|
 | 0-1 | Header `A5 5A` |
-| 2 | `1` = Drive, `2` = Stop, `5` = Lights; replies `3` = Applied, `4` = Stopped, `6` = LightsApplied |
+| 2 | `1` = Drive, `2` = Stop, `5` = Lights, `7` = Auto; replies `3` = Applied, `4` = Stopped, `6` = LightsApplied, `8` = Mode |
 | 3 | Signed angle -90..90 (two's complement) |
 | 4 | Signed electrical speed -100..100 (two's complement) |
 | 5 | CRC-8, polynomial `07`, initial zero, over bytes 0-4 |
 
 Stop requires zero angle and speed; it disables outputs and detaches the servo.
+Stop only affects motion when it comes from the selected source. Auto requires
+zero angle/speed and requests auto, never toggles it. Mode uses byte 3 as
+0=manual or 1=auto, with byte 4 zero; it reports selection, not backend health.
 Drive with zero speed stops motors while keeping the commanded servo angle.
 Lights uses byte 3 as an absolute off/on value (0/1), with byte 4 zero. S3
 repeats it with each control frame, so dropped frames or a Renesas reset recover
@@ -206,6 +270,8 @@ make test
 ```
 
 Host tests cover CRC/framing/resynchronization, invalid ranges, arming,
+dual-UART parser isolation, camera-only activation, neutral/disconnected Xbox
+while auto drives, manual takeover, repeated A requests and blink timing,
 held controls without repeated notifications, disconnection/worker-stall stops,
 watchdog expiry with the serial task idle,
 rollover, unchanged outputs, stale queued targets, steering/trigger curves and
@@ -238,6 +304,7 @@ of the original board image exists; the official recovery image is cached.
 | D9 / D10 | DRV8833 IN3 / IN4, motor 2 |
 | D13 | MG90S servo signal, 500-2500 microsecond pulses |
 | D7 | Headlight XY-MOS TRIG/PWM, active HIGH |
+| D0 / D1 | Camera ESP UART RX / TX through 3.3 V / 5 V level converter |
 | GND | Common signal/power ground |
 
 Recorded power: power bank -> verified 9 V PD trigger -> Arduino VIN and buck
@@ -255,7 +322,8 @@ separately supplied DRV8833/motors or servo in this wiring arrangement.
 
 ## Development notes
 
-This README is the single human/agent guide. Work on `master`; commit/push only
+This README is the single human/agent guide. Work on `master` unless a review
+branch/PR is requested; commit/push only
 when requested. Keep firmware plain and small; no UI or Python. Preserve actuator
 pins. Never commit credentials, config.h, flash dumps or build output; keep local
 artifacts under ignored `.build/`. Do not send actuation commands without

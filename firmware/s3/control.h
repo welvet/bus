@@ -22,7 +22,7 @@ inline int steering(uint16_t raw) {
   return int(round(copysign((fabs(axis) - 0.12) / 0.88, axis) * 90));
 }
 inline int angle(int stick) {
-  int travel = stick < 0 ? 71 : 35;
+  constexpr int travel = 50;
   double position = clamp(stick, -90, 90) / 90.0;
   return int(round(position * fabs(position) * travel));
 }
@@ -48,6 +48,8 @@ inline BusProtocol::Frame update(State& state, const XboxInput& input, uint32_t 
   if (!state.armed && stick == 0 && input.leftTrigger <= 20 && input.rightTrigger <= 20)
     state.armed = true;
   if (!state.armed) return BusProtocol::stop();
+  if (input.automatic && stick == 0 && input.leftTrigger <= 20 && input.rightTrigger <= 20)
+    return {BusProtocol::Command::Auto, 0, 0}; // Enable only; holding A is idempotent.
   // Electrical direction matches the existing motor mounting.
   return {BusProtocol::Command::Drive, angle(stick), -speed(input.leftTrigger, input.rightTrigger)};
 }

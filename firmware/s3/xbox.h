@@ -5,6 +5,7 @@
 struct XboxInput {
   uint16_t steering = 32768, leftTrigger = 0, rightTrigger = 0;
   bool connected = false;
+  bool automatic = false;
   uint32_t updatedAt = 0, reportAt = 0, connectedAt = 0, session = 0;
 };
 

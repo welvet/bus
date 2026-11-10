@@ -9,7 +9,10 @@ inline uint32_t remainingMs(uint32_t receivedAt, uint32_t now) {
   return age >= timeoutMs ? 0 : timeoutMs - age;
 }
 constexpr size_t frameSize = 6;
-enum class Command : uint8_t { Drive = 1, Stop = 2, Applied = 3, Stopped = 4, Lights = 5, LightsApplied = 6 };
+enum class Command : uint8_t {
+  Drive = 1, Stop = 2, Applied = 3, Stopped = 4, Lights = 5,
+  LightsApplied = 6, Auto = 7, Mode = 8
+};
 struct Frame { Command command; int angle; int speed; };
 inline Frame stop() { return {Command::Stop, 0, 0}; }
 inline int signedByte(uint8_t value) { return value < 128 ? value : int(value) - 256; }
@@ -23,9 +26,11 @@ inline uint8_t checksum(const uint8_t* bytes, size_t count) {
   return crc;
 }
 inline bool valid(const Frame& frame) {
-  if (frame.command == Command::Lights || frame.command == Command::LightsApplied)
+  if (frame.command == Command::Lights || frame.command == Command::LightsApplied ||
+      frame.command == Command::Mode)
     return (frame.angle == 0 || frame.angle == 1) && frame.speed == 0;
-  if (frame.command == Command::Stop || frame.command == Command::Stopped)
+  if (frame.command == Command::Stop || frame.command == Command::Stopped ||
+      frame.command == Command::Auto)
     return frame.angle == 0 && frame.speed == 0;
   return (frame.command == Command::Drive || frame.command == Command::Applied) &&
          frame.angle >= -90 && frame.angle <= 90 &&

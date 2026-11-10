@@ -64,6 +64,7 @@ void inputReceived(NimBLERemoteCharacteristic*, uint8_t* data, size_t length, bo
   input.steering = parsed.joyLHori;
   input.leftTrigger = parsed.trigLT;
   input.rightTrigger = parsed.trigRT;
+  input.automatic = parsed.btnA;
   xQueueOverwrite(inputs, &input);
 }
 
