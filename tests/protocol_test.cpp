@@ -257,14 +257,16 @@ void testControls() {
   input = neutral(1200); input.reportAt = 0; assert(!Control::fresh(input,1200));
   input.reportAt = 1190; input.connectedAt = 1195; assert(!Control::fresh(input,1200));
   assert(Control::steering(32768) == 0 && Control::steering(0) == -90 && Control::steering(65535) == 90);
-  assert(Control::angle(-90) == -71 && Control::angle(90) == 35);
-  assert(Control::angle(45) == 9 && Control::angle(-45) == -18);
+  assert(Control::angle(-90) == -50 && Control::angle(90) == 50);
+  assert(Control::angle(45) == 13 && Control::angle(-45) == -13);
+  for (int stick = 0; stick <= 90; ++stick)
+    assert(Control::angle(-stick) == -Control::angle(stick));
   assert(Control::angle(0) == 0);
   assert(Control::speed(0,20) == 0 && Control::speed(0,21) == 30 && Control::speed(0,529) == 48);
   assert(Control::speed(1000,500) == -Control::speed(500,1000) && Control::speed(500,500) == 0);
   state = Control::State{}; input = neutral(100); Control::update(state,input,100);
-  input.steering = 65535; assert(Control::update(state,input,100).angle == 35);
-  input.steering = 0; assert(Control::update(state,input,100).angle == -71);
+  input.steering = 65535; assert(Control::update(state,input,100).angle == 50);
+  input.steering = 0; assert(Control::update(state,input,100).angle == -50);
   input.steering = 32768; assert(Control::update(state,input,100).angle == 0);
   state = Control::State{}; input = neutral(100); Control::update(state,input,100);
   input.rightTrigger = 1023; assert(Control::update(state,input,100).speed == -100);
@@ -282,7 +284,7 @@ void testControls() {
   for (uint32_t now : {1100u, 10000u, 60000u, 3600000u}) {
     input.updatedAt = now; // BLE worker remains live; no new HID report needed.
     auto held = Control::update(state,input,now);
-    assert(held.command == BusProtocol::Command::Drive && held.angle == 35 && held.speed == -100);
+    assert(held.command == BusProtocol::Command::Drive && held.angle == 50 && held.speed == -100);
   }
   input.connected = false;
   assert(Control::update(state,input,3600000).command == BusProtocol::Command::Stop);

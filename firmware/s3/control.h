@@ -22,7 +22,7 @@ inline int steering(uint16_t raw) {
   return int(round(copysign((fabs(axis) - 0.12) / 0.88, axis) * 90));
 }
 inline int angle(int stick) {
-  int travel = stick < 0 ? 71 : 35;
+  constexpr int travel = 50;
   double position = clamp(stick, -90, 90) / 90.0;
   return int(round(position * fabs(position) * travel));
 }

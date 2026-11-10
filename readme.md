@@ -28,7 +28,7 @@ stronger trigger wins and equal pressures stop. Triggers have a 2% release zone,
 then quadratic output from a shared 30% minimum to 100%. The electrical motor
 sign matches the current motor mounting.
 
-Steering has a rescaled 12% deadzone and quadratic travel from -71 to +35 degrees,
+Steering has a rescaled 12% deadzone and symmetric quadratic travel from -50 to +50 degrees,
 with a fixed center of zero. Face buttons do not calibrate or change steering.
 No steering trim is read or saved; previously stored trim is ignored.
 
