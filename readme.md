@@ -17,6 +17,8 @@ The auto-control draft also accepts camera-ESP motion on a separate wired UART.
   task, with an independent input watchdog. No network task or credentials.
 - `firmware/bus/priority.h`: Renesas-owned manual/auto selection, per-source
   arming and nonblocking auto-entry headlight indication.
+- `firmware/camera/`: separate GOOUUU ESP32-S3-CAM N16R8 firmware, MJPEG HTTP
+  feed and latest-state UDP control. This is not the Uno's onboard S3 sketch.
 - `firmware/bus/display.cpp`: built-in 12x8 LED matrix display of software-applied
   speed, servo angle and stopped state; its pixel layout is in `display.h`.
 - `firmware/bus/bus.ino.old`: unchanged archive of the previous UDP firmware.
@@ -28,7 +30,7 @@ stronger trigger wins and equal pressures stop. Triggers have a 2% release zone,
 then quadratic output from a shared 30% minimum to 100%. The electrical motor
 sign matches the current motor mounting.
 
-Steering has a rescaled 12% deadzone and symmetric quadratic travel from -50 to +50 degrees,
+Steering has a rescaled 12% deadzone and symmetric quadratic travel from -45 to +45 degrees,
 with a fixed center of zero. Face buttons do not calibrate or change steering.
 No steering trim is read or saved; previously stored trim is ignored.
 
@@ -100,7 +102,7 @@ Radio loss first has to be detected by BLE link supervision; this is not a claim
 of instantaneous RF-loss detection. Detaching stops servo pulses and
 releases holding torque; it does not command the servo to return to center.
 
-## Auto-control draft
+## Auto-control priority
 
 Renesas boots in **manual** mode. It arbitrates the existing onboard S3 link
 (`Serial`, controller) and a new camera link (`Serial1`, D0 RX / D1 TX), both
@@ -133,25 +135,115 @@ is restored afterward; returning to manual cancels the blink. Both UARTs receive
 Applied/Stopped, LightsApplied and Mode every 100 ms. USB prints
 `Mode: manual`, `Mode: auto` or `Mode: unknown` when mode feedback is stale.
 
-**Camera/backend contract for the next implementation:** the camera ESP owns UDP
-sessions, increasing sequence IDs, duplicate/reorder rejection, sequence queues,
-step durations in **milliseconds** and backend heartbeat expiry. It emits ordinary
-Drive frames at 50 Hz while a step is valid, and Stop at sequence completion or
-backend timeout. The motion payload is the existing absolute angle in degrees
+The camera ESP owns UDP sessions, increasing counters, duplicate/reorder rejection
+and the latest state's duration in **milliseconds**. A newer state replaces the
+previous state immediately; there is no sequence queue. It emits ordinary
+Drive frames at 50 Hz while a state is valid, and Stop at expiry or Wi-Fi loss.
+The motion payload on UART is the existing absolute angle in degrees
 and signed electrical motor percentage (negative is forward on this toy), with
 no additional manual curve or 30% minimum applied by Renesas.
 
-The camera must read Mode, discard its pending plan on manual override, and
-require fresh explicit activation before sending Auto again. Auto must never
-be automatically prepended to every Drive or replayed from a pending sequence.
-After activation, start from a fresh plan; after reconnect/reboot, discard old
-plans and use a new backend session. The six-byte UART protocol has no session
-or sequence IDs and cannot itself distinguish a stale Auto packet or stale
-camera plan from a new one. These protections belong in camera/backend firmware.
-This PR implements neither that firmware nor video/Wi-Fi/UDP. No camera board or
-dual-UART hardware behavior has been verified; keep power disconnected for initial
-communication tests. A failed camera process must stop forwarding Drive, rather
-than blindly refreshing an old backend command.
+The camera reads Mode and discards its state on manual override. Auto is never
+prepended to Drive; activation requires A or a separate explicit UDP request.
+Each auto entry has an epoch so delayed states from a previous auto run are
+rejected. The six-byte UART protocol itself has no session or sequence IDs.
+The backend must stop sending states if video/CV stalls; the camera cannot infer
+backend health while it keeps receiving new commands. Renesas independently
+stops if the camera process fails to forward Drive. Keep actuator power off for
+initial communication tests; a successful build does not verify hardware behavior.
+
+## Camera board and API
+
+Target: GOOUUU ESP32-S3-CAM v1.5, N16R8 (16 MB flash, **8 MB OPI PSRAM**),
+OV5640 DVP camera. The camera map is Espressif's
+[BOARD_ESP32S3_GOOUUU](https://github.com/espressif/esp32-camera/blob/master/examples/camera_example/main/camera_pinout.h):
+XCLK=15, SCCB SDA/SCL=4/5, VSYNC=6, HREF=7, PCLK=13,
+data D0..D7=11/9/8/10/12/18/17/16, no reset/power-down pins. The earlier seller
+pinout image has shifted labels: GPIO4-7 are **not free UART pins**.
+
+Default camera UART: GPIO21 TX -> Uno D0 RX; GPIO47 RX <- Uno D1 TX, through
+a 3.3 V / 5 V converter. Confirm actual wiring before uploading. No SD card is
+used. Regulated external 5 V/GND can power the board; converter LV is 3.3 V,
+HV is 5 V, and grounds are common. Keep external buck 5 V off Arduino's 5 V pin.
+
+Recorded harness: red = buck 5 V before the headlight MOSFET, black = shared GND;
+yellow = camera GPIO21 TX -> LV1 / HV1 -> Uno D0 RX;
+blue = camera GPIO47 RX <- LV4 / HV4 <- Uno D1 TX.
+Converter LV is supplied from Arduino 3.3 V, HV from Arduino 5 V; its GND joins
+the common ground. Channels 1 and 4 are interchangeable with other matched
+LV/HV channel pairs. The signal pins remain GPIO21/GPIO47 regardless of converter
+channel numbering. External UART communication still requires verification.
+
+Copy `firmware/camera/config.example.h` to `firmware/camera/config.h`, fill Wi-Fi
+and UART pins. The real config is ignored by Git; never commit it. Firmware uses
+station mode only. USB logs are on the camera's **TTL/CH340 USB** at 115200 baud,
+with no USB-open wait. It logs sensor PID, probe JPEG dimensions and PSRAM to
+confirm detection, then prints its IP after joining Wi-Fi.
+
+```powershell
+make camera-build
+make camera PORT=COMx
+make monitor PORT=COMx
+```
+
+`tools/camera.ps1` requires an explicit CH340 camera port and never invokes the
+Uno bridge swap. Connect only the intended camera if several CH340 boards are
+present. Its build output lives in `.build/camera/`. Reset/BOOT recovery uses
+the camera board's own buttons. The Uno's `s3-custom` target is a different board.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET http://IP/status` | Camera PID/capture count, session/counter/epoch, mode, remaining duration, Renesas motion acknowledgment age/state |
+| `POST http://IP/session` | Stop local motion, rotate session and invalidate all previous-session UDP packets; returns the new session |
+| `GET http://IP/snapshot` | One VGA JPEG, or 503 if camera initialization/capture fails |
+| `GET http://IP:81/stream` | One MJPEG stream client, target at most 10 fps, VGA JPEG quality 12 |
+| UDP `IP:4210` | JSON latest-state commands with JSON acknowledgment to sender |
+
+HTTP control/status and video run in separate server tasks; UART/UDP processing
+never waits for a stream client. Capture uses two PSRAM buffers with latest-frame
+selection, not an application frame backlog. TCP/client buffering can still add
+latency. `X-Capture-Us` in each MJPEG part is the sensor-frame uptime timestamp.
+No UDP video broadcast. Backend opens the stream and can relay it to viewers.
+`bus-camera.local` is advertised by mDNS when supported on the client network;
+otherwise use the IP printed on serial. These APIs are for the trusted local LAN.
+
+Backend startup: POST `/session`, read `/status`, then explicitly enable auto
+(or press Xbox A). Wait for `/status` to report `mode: auto` and take its `epoch`.
+Send a state, using the returned numeric `session` and a strictly increasing
+32-bit `counter` shared across all operations:
+
+```json
+{"op":"auto","session":123,"counter":1}
+{"op":"drive","session":123,"counter":2,"epoch":1,"angle":10,"speed":20,"duration_ms":500}
+{"op":"stop","session":123,"counter":3}
+```
+
+These are separate UDP datagrams, at most 512 bytes each. All fields are integers.
+Angle is -45..45 degrees from center; speed is -100..100 with **positive forward**
+(camera negates it for the electrical UART convention). Duration is 1..2000 ms,
+measured from acceptance; a duplicate/older packet never extends it. Duration 0
+is rejected: use Stop explicitly. No motor curve is added, so low percentages
+may not overcome friction. Counter comparison supports wraparound, rejecting
+differences of half the uint32 range or more. A new backend process should create
+a new session rather than guess the old counter. Boot and Wi-Fi reconnect rotate
+the session. A new auto epoch rejects delayed states from an earlier activation.
+
+UDP acknowledgment: `{"accepted":true,"counter":2,"reason":"ok"}`. This means
+accepted by the camera, not physically applied. Rejections give `session`,
+`old-counter`, `epoch`, `not-auto`, `range`, `op`, `json` or `renesas-offline`.
+Mode/actuation feedback is available separately through `/status`.
+Auto is sent once per accepted explicit request; lost/rejected activation can
+be retried with a newer counter. It never toggles or gets embedded in Drive.
+The camera emits a zero-speed arming frame before motion after a Stop/expiry.
+There is no automatic movement at boot, on stream connection or on Wi-Fi join.
+
+Observed hardware verification: camera CH340 USB on COM7, ESP32-S3 with 16 MB
+flash and 8 MB PSRAM, OV5640 PID 0x5640, successful 640x480 JPEG capture, Wi-Fi
+join, HTTP status/snapshot and 29 MJPEG parts over a three-second read. UDP Stop
+was acknowledged and its duplicate rejected. No Auto or moving command was sent.
+Renesas status was absent during this check (`mode: unknown`); external UART
+wiring/power and motion remain unverified. The observed IP was 192.168.8.209
+(DHCP can change it).
 
 ## Renesas LED matrix
 

@@ -3,6 +3,7 @@ __pycache__/
 .env
 .build/
 firmware/bus/config.h
+firmware/camera/config.h
 .DS_Store
 
 firmware/bus/web.h

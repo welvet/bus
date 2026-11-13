@@ -7,10 +7,11 @@ RENESAS_SKETCH ?= firmware/bus
 S3_SKETCH ?= firmware/s3
 S3_FQBN ?= esp32:esp32:esp32s3:FlashSize=8M,PSRAM=disabled,USBMode=hwcdc,CDCOnBoot=cdc,FlashMode=dio
 
-.PHONY: help setup boards s3-origin renesas s3-custom monitor test
+.PHONY: help setup boards s3-origin renesas s3-custom camera camera-build monitor test
 help:
 	@echo "make s3-origin renesas s3-custom"
 	@echo "make setup | boards | monitor [PORT=COM4] | test"
+	@echo "make camera-build | camera PORT=COMx (camera TTL USB only)"
 setup:
 	$(ARDUINO_CLI) core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
 	$(ARDUINO_CLI) core install arduino:renesas_uno@1.6.0
@@ -25,6 +26,10 @@ renesas:
 	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File tools/flash.ps1 -Action renesas -ArduinoCli "$(ARDUINO_CLI)" -Sketch "$(RENESAS_SKETCH)"
 s3-custom:
 	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File tools/flash.ps1 -Action s3-custom -ArduinoCli "$(ARDUINO_CLI)" -Sketch "$(S3_SKETCH)" -S3Fqbn "$(S3_FQBN)"
+camera:
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File tools/camera.ps1 -ArduinoCli "$(ARDUINO_CLI)" -Port "$(PORT)"
+camera-build:
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File tools/camera.ps1 -ArduinoCli "$(ARDUINO_CLI)" -BuildOnly
 monitor:
 	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File tools/flash.ps1 -Action monitor -ArduinoCli "$(ARDUINO_CLI)" -Port "$(PORT)"
 test:
@@ -33,3 +38,5 @@ test:
 	.build/protocol_test.exe
 	$(CXX) -std=c++11 -Wall -Wextra -Werror -static -Ifirmware/shared -Itests/mocks tests/s3_startup_test.cpp -o .build/s3_startup_test.exe
 	.build/s3_startup_test.exe
+	$(CXX) -std=c++11 -Wall -Wextra -Werror -static -Ifirmware/shared tests/camera_motion_test.cpp -o .build/camera_motion_test.exe
+	.build/camera_motion_test.exe
