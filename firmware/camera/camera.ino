@@ -19,6 +19,8 @@ SemaphoreHandle_t stateLock;
 BusProtocol::Parser replies;
 BusProtocol::Frame applied = {BusProtocol::Command::Stopped,0,0};
 uint32_t appliedAt = 0, sentAt = 0, loggedAt = 0;
+bool lightsApplied = false, haveLights = false;
+uint32_t lightsAt = 0;
 bool haveApplied = false, cameraReady = false, serversStarted = false;
 bool wasWifi = false;
 uint16_t sensorId = 0;
@@ -71,6 +73,8 @@ esp_err_t statusHandler(httpd_req_t* request) {
   auto state = motion;
   auto output = applied;
   bool reply = haveApplied;
+  bool light = lightsApplied, lightKnown = haveLights;
+  uint32_t lightTime = lightsAt;
   uint32_t replyTime = appliedAt;
   xSemaphoreGive(stateLock);
   uint32_t now = millis();
@@ -81,7 +85,7 @@ esp_err_t statusHandler(httpd_req_t* request) {
     "{\"camera\":%s,\"sensor_pid\":%u,\"frames\":%lu,\"capture_failures\":%lu,"
     "\"session\":%lu,\"counter\":%lu,\"have_counter\":%s,\"epoch\":%lu,\"mode\":\"%s\","
     "\"remaining_ms\":%lu,\"angle\":%d,\"speed\":%d,\"renesas_age_ms\":%ld,"
-    "\"renesas_enabled\":%s,\"renesas_angle\":%d,\"renesas_speed\":%d,\"udp_port\":%u,\"stream_port\":81}",
+    "\"renesas_enabled\":%s,\"renesas_angle\":%d,\"renesas_speed\":%d,\"udp_port\":%u,\"stream_port\":81,\"lights_api\":1,\"lights_on\":%s,\"lights_age_ms\":%ld}",
     cameraReady ? "true" : "false", sensorId, (unsigned long)captured.load(),
     (unsigned long)captureFailures.load(), (unsigned long)state.session, (unsigned long)state.counter,
     state.haveCounter ? "true" : "false", (unsigned long)state.epoch,
@@ -89,7 +93,8 @@ esp_err_t statusHandler(httpd_req_t* request) {
     (unsigned long)remaining, state.angle, state.speed,
     reply ? (long)uint32_t(now - replyTime) : -1L,
     reply && uint32_t(now - replyTime) < BusProtocol::timeoutMs && output.command == BusProtocol::Command::Applied
-      ? "true" : "false", output.angle, output.speed, udpPort);
+      ? "true" : "false", output.angle, output.speed, udpPort, lightKnown ? (light ? "true" : "false") : "null",
+    lightKnown ? (long)uint32_t(now - lightTime) : -1L);
   return jsonReply(request, json);
 }
 
@@ -189,8 +194,11 @@ void receiveUdp() {
       cJSON* root = cJSON_ParseWithOpts(data, &end, true);
       double token, counter, epoch = 0, angle = 0, speed = 0, duration = 0;
       auto* operation = root ? cJSON_GetObjectItemCaseSensitive(root, "op") : nullptr;
+      auto* lightValue = root ? cJSON_GetObjectItemCaseSensitive(root, "on") : nullptr;
+      bool lightsCommand = cJSON_IsString(operation) && strcmp(operation->valuestring, "lights") == 0;
       bool drive = cJSON_IsString(operation) && strcmp(operation->valuestring, "drive") == 0;
       bool valid = cJSON_IsObject(root) && cJSON_IsString(operation) &&
+        (!lightsCommand || cJSON_IsBool(lightValue)) &&
         integer(root,"session",1,UINT32_MAX,token) && integer(root,"counter",0,UINT32_MAX,counter) &&
         (!drive || (integer(root,"epoch",0,UINT32_MAX,epoch) && integer(root,"angle",-45,45,angle) &&
           integer(root,"speed",-100,100,speed) && integer(root,"duration_ms",1,CameraMotion::maxDurationMs,duration)));
@@ -198,7 +206,7 @@ void receiveUdp() {
         sequence = uint32_t(counter);
         xSemaphoreTake(stateLock, portMAX_DELAY);
         reason = motion.accept(uint32_t(token), sequence, uint32_t(epoch), operation->valuestring,
-                               int(angle), int(speed), uint32_t(duration), millis());
+                               int(angle), int(speed), uint32_t(duration), millis(), cJSON_IsTrue(lightValue));
         xSemaphoreGive(stateLock);
       }
       cJSON_Delete(root);
@@ -244,6 +252,9 @@ void loop() {
     BusProtocol::Frame reply;
     if (!replies.push(uint8_t(renesas.read()), millis(), reply)) continue;
     xSemaphoreTake(stateLock, portMAX_DELAY);
+    if (reply.command == BusProtocol::Command::LightsApplied) {
+      lightsApplied = reply.angle != 0; haveLights = true; lightsAt = millis();
+    }
     if (reply.command == BusProtocol::Command::Mode) motion.mode(reply.angle != 0, millis());
     if (reply.command == BusProtocol::Command::Applied || reply.command == BusProtocol::Command::Stopped) {
       applied = reply; appliedAt = millis(); haveApplied = true;
@@ -257,6 +268,11 @@ void loop() {
     sendFrame(frame); sentAt = millis();
   }
   if (wifi) receiveUdp();
+  bool lightValue = false;
+  xSemaphoreTake(stateLock, portMAX_DELAY);
+  bool sendLight = motion.takeLights(lightValue);
+  xSemaphoreGive(stateLock);
+  if (sendLight) sendFrame({BusProtocol::Command::Lights, lightValue ? 1 : 0, 0});
   if (uint32_t(millis() - loggedAt) >= 1000) {
     Serial.printf("Bus camera: ping camera=%s wifi=%s frames=%lu failures=%lu\n",
       cameraReady ? "ok" : "failed", wifi ? "up" : "waiting", (unsigned long)captured.load(),

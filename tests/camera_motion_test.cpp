@@ -51,5 +51,18 @@ int main() {
   assert(state.accept(456,2,state.epoch,"drive",0,0,2001,100));
   assert(state.accept(456,2,state.epoch,"drive",0,0,0,100));
   assert(state.accept(456,2,state.epoch,"dance",0,0,100,100));
+  // Headlights are independent of motion and do not refresh duration/arming.
+  state.reset(789); state.mode(true,2000);
+  assert(!state.accept(789,1,state.epoch,"drive",5,50,100,2000));
+  auto started = state.startedAt;
+  assert(!state.accept(789,2,state.epoch,"lights",0,0,0,2010,true));
+  assert(state.startedAt == started && state.active);
+  bool on = false; assert(state.takeLights(on) && on);
+  assert(!state.takeLights(on));
+  assert(state.accept(789,2,state.epoch,"lights",0,0,0,2020,false)); // Duplicate rejected.
+  assert(state.tick(2100,true).command == Command::Stop);
+  assert(!state.accept(789,3,state.epoch,"lights",0,0,0,2101,false));
+  assert(state.takeLights(on) && !on && !state.active);
+  state.reset(790); assert(!state.takeLights(on));
   std::cout << "Camera timed replacement, counters/session/epoch, arming, disconnect, expiry and rollover passed\n";
 }

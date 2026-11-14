@@ -245,6 +245,15 @@ Renesas status was absent during this check (`mode: unknown`); external UART
 wiring/power and motion remain unverified. The observed IP was 192.168.8.209
 (DHCP can change it).
 
+## Browser control on the Mac
+
+A local static console at http://bus.local/ (also bus.lan) shows the camera and
+provides a landscape joystick, a persistent control switch and desktop arrow keys.
+nginx proxies camera HTTP/MJPEG; a small loopback Node bridge translates the
+normalized HTTP intent API into camera UDP commands, applying response curves
+and the acceleration limit on the Mac. See [web/README.md](web/README.md)
+for deployment, API bodies, stopping behavior and verification limits.
+
 ## Renesas LED matrix
 
 The built-in matrix works from USB power alone, so motor/servo power can stay
@@ -293,7 +302,9 @@ zero angle/speed and requests auto, never toggles it. Mode uses byte 3 as
 Drive with zero speed stops motors while keeping the commanded servo angle.
 Lights uses byte 3 as an absolute off/on value (0/1), with byte 4 zero. S3
 repeats it with each control frame, so dropped frames or a Renesas reset recover
-the selected light state. Lights frames never arm motion or refresh its watchdog.
+the selected light state. Lights frames never arm motion or refresh its watchdog. Camera-source Lights
+frames are now accepted too; repeated identical Xbox light frames do not overwrite
+a camera selection. A changed Xbox light selection applies again.
 LightsApplied reports D7's software state using the same 0/1 payload at 10 Hz.
 Unknown commands, invalid ranges, bad checksums and incomplete frames are ignored.
 The parser discards a partial frame after a 50 ms inter-byte gap and searches for
@@ -374,6 +385,9 @@ startup without an attached USB host, and Stop transmission before Xbox startup.
 Flashing is performed by the user; use build-only checks unless asked to upload.
 No GitHub Actions workflow is present.
 
+Web headlights require updating both `firmware/bus` and `firmware/camera`; the
+onboard `firmware/s3` does not need changes. See web/README.md.
+
 ## Recovery
 
 The stock 0.6.1 image and official reboot utility are cached/downloaded under
@@ -416,7 +430,7 @@ separately supplied DRV8833/motors or servo in this wiring arrangement.
 
 This README is the single human/agent guide. Work on `master` unless a review
 branch/PR is requested; commit/push only
-when requested. Keep firmware plain and small; no UI or Python. Preserve actuator
+when requested. Keep firmware plain and small. The browser UI lives separately under web/. Preserve actuator
 pins. Never commit credentials, config.h, flash dumps or build output; keep local
 artifacts under ignored `.build/`. Do not send actuation commands without
 permission. Distinguish compilation, host tests and observed hardware results.

@@ -12,10 +12,12 @@ struct State {
   uint32_t session = 0, counter = 0, epoch = 0, startedAt = 0, duration = 0, modeAt = 0;
   bool haveCounter = false, haveMode = false, automatic = false;
   bool active = false, needsNeutral = true, requestAuto = false;
+  bool requestLights = false, lights = false;
+  bool takeLights(bool& value) { if (!requestLights) return false; requestLights = false; value = lights; return true; }
   int angle = 0, speed = 0; // Public speed is positive=forward.
   void stop() { active = false; needsNeutral = true; }
   void reset(uint32_t token) {
-    session = token; haveCounter = false; requestAuto = false; stop();
+    session = token; haveCounter = false; requestAuto = false; requestLights = false; stop();
   }
   void mode(bool value, uint32_t now) {
     if (!haveMode || automatic != value) {
@@ -29,7 +31,7 @@ struct State {
   }
   const char* accept(uint32_t token, uint32_t sequence, uint32_t activation,
                      const char* op, int targetAngle, int targetSpeed,
-                     uint32_t milliseconds, uint32_t now) {
+                     uint32_t milliseconds, uint32_t now, bool lightsOn = false) {
     if (token != session) return "session";
     if (haveCounter && !newer(sequence, counter)) return "old-counter";
     if (strcmp(op, "drive") == 0) {
@@ -44,6 +46,9 @@ struct State {
     } else if (strcmp(op, "auto") == 0) {
       if (!online(now)) return "renesas-offline";
       if (!automatic) requestAuto = true; // No Auto piggybacked on Drive.
+    } else if (strcmp(op, "lights") == 0) {
+      if (!online(now)) return "renesas-offline";
+      lights = lightsOn; requestLights = true;
     } else if (strcmp(op, "stop") == 0) {
       stop(); requestAuto = false;
     } else return "op";

@@ -333,8 +333,12 @@ void testPriority() {
   assert(priority.automatic && priority.receivedAt == 60 && queued.size() == count);
   feed(bytes({Command::Lights,1,0}), 90);
   cameraFeed({Command::Mode,0,0}, 100); // Replies cannot act as requests.
-  cameraFeed({Command::Lights,0,0}, 110); // Camera cannot take over headlight setting.
-  assert(lightState.saved && priority.receivedAt == 60);
+  cameraFeed({Command::Lights,0,0}, 110);
+  assert(!lightState.saved && priority.receivedAt == 60);
+  feed(bytes({Command::Lights,1,0}), 120); // Repeated Xbox state cannot undo the web request.
+  assert(!lightState.saved && priority.receivedAt == 60);
+  feed(bytes({Command::Lights,0,0}), 130); // A new Xbox selection can take over.
+  assert(!lightState.saved);
   feed({}, 1060);
   assert(!priority.active && !priority.camera.armed && priority.automatic);
   cameraFeed(drive(0,-100), 1061);

@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111713"><title>Bus · Drive</title>
+<link rel="stylesheet" href="/style.css">
+</head><body>
+<div class="rotate"><span aria-hidden="true">↻</span><h1>Rotate to landscape</h1><p>Turn your device sideways to drive.</p></div>
+<main id="console">
+<header><div class="brand">Bus <span>DRIVE</span></div><div class="connection" id="status" role="status">Connecting…</div><label class="lights-control"><span>Lights</span><input id="lights" type="checkbox" role="switch" aria-label="Headlights"><span class="switch" aria-hidden="true"></span></label><label class="take"><span>Take control</span><input id="control" type="checkbox" role="switch" aria-label="Take control"><span class="switch" aria-hidden="true"></span></label></header>
+<div id="error" role="alert" aria-live="polite" hidden></div>
+<div class="workspace">
+<section class="camera-panel" aria-label="Camera feed"><div class="video"><span id="videoHint">Connecting to camera…</span><img id="camera" alt="Live view from the bus camera"></div><div class="camera-bar"><span><i></i> ONBOARD CAMERA</span><button id="reloadVideo" aria-label="Reconnect camera">↻</button></div></section>
+<section class="drive-panel" aria-label="Joystick control"><div class="drive-heading"><span id="driveState">Control off</span><span class="max">±45° MAX</span></div><div class="joystick-wrap"><div id="joystick" aria-label="Drag up for speed; left or right to steer"><svg viewBox="0 0 220 320" aria-hidden="true"><polygon points="86,260 5.93,40 214.07,40 134,260" class="cone-area"/><path d="M110 260 V40 M86 260 H134 M6 40 H214" class="cone-guide"/><text x="10" y="164" class="cone-label">LEFT</text><text x="168" y="164" class="cone-label">RIGHT</text><text x="102" y="292" class="cone-label">0%</text><text x="94" y="24" class="cone-label">100%</text><circle id="thumb" cx="110" cy="260" r="22"/></svg></div></div><label class="reverse-control"><span>Reverse</span><input id="reverse" type="checkbox" role="switch" aria-label="Reverse"><span class="switch" aria-hidden="true"></span></label><div class="readouts"><div><span>SPEED</span><output id="speedValue">0%</output></div><div><span>STEERING</span><output id="angleValue">0°</output></div></div><p class="hint">Release to center &amp; stop<span>Drag up for speed · Left/right to steer</span></p></section>
+</div></main><script type="module" src="/app.js"></script></body></html>

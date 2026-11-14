@@ -61,8 +61,9 @@ void actuatorTask(void*) {
 
 void receiveFrame(Priority::Source source, const BusProtocol::Frame& frame) {
   uint32_t now = millis();
-  if (source == Priority::Source::Controller && frame.command == BusProtocol::Command::Lights) {
-    lightState.saved = frame.angle != 0;
+  if (frame.command == BusProtocol::Command::Lights && BusProtocol::valid(frame)) {
+    if (source == Priority::Source::Controller) lightState.controller(frame.angle != 0);
+    else lightState.camera(frame.angle != 0);
     return; // Lighting never refreshes the actuator watchdog.
   }
   bool wasAuto = priority.automatic;

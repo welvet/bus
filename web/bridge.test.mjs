@@ -1,0 +1,22 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {once} from 'node:events';
+import {createBridge} from './bridge.mjs';
+test('clean API acquires lease, accepts raw intent; raw bypass and invalid/origin requests blocked',async t=>{
+ const packets=[];
+ const server=createBridge({autoStart:false,transport:{getStatus:async()=>({session:7,epoch:1,mode:'auto',renesas_age_ms:1}),newSession:async()=>({session:7}),send:async p=>{packets.push(p);return {accepted:true,counter:p.counter};}}});
+ server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+ const base=`http://127.0.0.1:${server.address().port}`;
+ const post=(path,body,headers={})=>fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
+ let response=await post('/control/acquire',{});assert.equal(response.status,200);const {lease}=await response.json();
+ await new Promise(r=>setImmediate(r));
+ response=await post('/control/input',{lease,sequence:1,steering:0,throttle:0,duration_ms:300});assert.equal(response.status,200);assert.equal((await response.json()).desired_speed,0);
+ response=await post('/control/input',{lease,sequence:2,steering:0,throttle:.5,duration_ms:300});assert.equal(response.status,200);assert.equal((await response.json()).desired_speed,47);
+ const count=packets.length;
+ response=await post('/command',{op:'drive',speed:100});assert.equal(response.status,410);
+ response=await post('/control/input',{lease,sequence:3,steering:0,throttle:101,duration_ms:300});assert.equal(response.status,400);
+ response=await post('/control/acquire',{}, {Origin:'http://unrelated.example'});assert.equal(response.status,403);
+ assert.equal(packets.length,count);
+ response=await post('/control/release',{lease,sequence:4});assert.equal(response.status,200);
+ assert.equal((await response.json()).lease,null);
+});

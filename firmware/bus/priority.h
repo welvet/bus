@@ -73,6 +73,13 @@ struct State {
 
 struct Lights {
   bool saved = false, blinking = false;
+  bool haveController = false, controllerValue = false;
+  void controller(bool value) {
+    // Repeated Xbox state must not continuously overwrite a camera selection.
+    if (!haveController || value != controllerValue) saved = value;
+    haveController = true; controllerValue = value;
+  }
+  void camera(bool value) { saved = value; }
   uint32_t startedAt = 0;
   void enteredAuto(uint32_t now) { blinking = true; startedAt = now; }
   void manual() { blinking = false; }
