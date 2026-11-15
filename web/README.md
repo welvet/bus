@@ -4,7 +4,7 @@ http://bus.local/ or http://bus.lan/. Static landscape camera/cone UI; Node back
 owns all web/CV motor policy, camera sessions, UDP counters and acceleration.
 The browser sends raw normalized intent. It does not map PWM, minimum output,
 steering limits or nonlinear response. Firmware retains its independent range
-checks, source priority, neutral arming and watchdogs. No firmware flash needed.
+checks, source priority, neutral arming and watchdogs. The final camera RTP firmware is required.
 
 ## Motor policy
 
@@ -50,7 +50,7 @@ All POSTs require `Content-Type: application/json`. No cross-origin writes.
 | `/api/control/release` | POST | Release matching lease and Stop |
 | `/api/status` | GET | Raw camera diagnostics only |
 | `/api/snapshot` | GET | Sensor-native JPEG |
-| `/camera/stream` | GET | On-demand shared sensor-native MJPEG |
+| `/camera/stream` | GET | Shared browser MJPEG, received from camera RTP/UDP through FFmpeg |
 | `/api/video-status` | GET | Relay consumers and upstream state |
 
 Acquire returns a string `lease` immediately. Setup happens asynchronously;
@@ -102,16 +102,16 @@ Readouts show backend output/angle, not locally calculated motor targets.
 ## Deployment
 
 - Static root: web/public. nginx block: web/nginx-bus.conf.
-- `node web/bridge.mjs`, loopback 127.0.0.1:8792, no npm dependencies.
-- Camera: 192.168.8.209, HTTP :80 / video :81 / UDP :4210.
-  Optional BUS_CAMERA_IP, PORT and BUS_ACCELERATION_MS env vars.
+- `node web/bridge.mjs`, loopback 127.0.0.1:8792, no npm dependencies. FFmpeg is required.
+- Camera: 192.168.8.209, HTTP :80 / RTSP :8554 / control UDP :4210.
+  Optional BUS_CAMERA_IP, BUS_RTSP_PORT, PORT and BUS_ACCELERATION_MS env vars. Set BUS_FFMPEG to the absolute ffmpeg executable path for a LaunchAgent.
 - LaunchAgent: ~/Library/LaunchAgents/local.bus.web-bridge.plist.
   Logs: .build/web-bridge*.log. Login startup.
 - nginx: ~/.config/nginx/nginx.conf; original backup nginx.conf.before-bus-web.
   Other virtual hosts preserved. Access localhost/home LAN only, no passwords.
-- camera-relay.mjs opens one upstream for the first consumer and aborts immediately
-  when the last leaves. Slow consumers keep only the latest pending frame and
-  disconnect after five seconds without draining. No idle video transfer/retries.
+- camera-relay.mjs launches one FFmpeg RTP/UDP receiver for the first consumer and stops it immediately
+  when the last leaves. It uses stream copy to remux JPEG into browser MJPEG, with no image re-encoding. Slow consumers keep only the latest pending frame and
+  disconnect after five seconds without draining. No idle video transfer/retries. A five-second complete-frame watchdog closes a stalled receiver; /api/video-status exposes an error.
   This does not power down ESP Wi-Fi/camera hardware.
 - Camera view: -90° rotation and horizontal mirroring in CSS. Raw API unchanged.
 
@@ -123,7 +123,7 @@ Pure tests cover response shaping, 0/50/100 timing, changes mid-ramp, immediate
 reductions, low-target credit, reset/reverse and stalls. Controller tests cover
 neutral arming, expiry even before the timer runs, lease ownership, manual
 takeover and invalid input. UI tests assert raw intent rather than motor values.
-HTTP/UDP/video tests use simulated transports/loopback clients, not the bus.
+HTTP/UDP/video tests use simulated transports, receiver processes and loopback clients, not the bus.
 Read-only deployment checks are safe; no live acquire/input calls were made by
 the agent for acceleration testing. iOS visual QA is unavailable in Work settings.
 Real driving response still needs hardware verification.
@@ -162,7 +162,7 @@ otherwise null). Requested state is not proof of LED current.
 change. Camera status advertises `lights_api:1`, `lights_on`, `lights_age_ms`.
 An older camera is rejected with HTTP 501 and an explicit firmware-update message.
 Do not flash the dummy-credential .build camera artifact; compile using your
-real, ignored camera config. No board was flashed by the agent.
+real, ignored camera config.
 
 The camera accepts session/counter-protected UDP `{op:"lights",session,counter,
 on:true}` and forwards a Lights frame on its UART. Renesas applies camera or
@@ -171,8 +171,40 @@ Repeated identical Xbox light frames do not undo a web selection; changing
 Xbox B's selected on/off value applies that selection again. Auto-entry blink
 retains its existing temporary behavior and restores the saved light state.
 
-Lights verification: camera firmware compiles for ESP32-S3 N16R8/OPI PSRAM
-using dummy credentials in ignored .build staging. Renesas protocol/actuator
-and camera motion host tests pass. Full Renesas compilation remains blocked
-by the installed Intel compiler (`bad CPU type in executable`) on this Mac.
-No firmware uploads or physical light tests were performed.
+Validation: camera and Renesas firmware compile on the Windows toolchain.
+Firmware host tests and all 27 web tests pass. The final camera firmware was
+flashed and tested over Wi-Fi; physical light and motor checks remain separate.
+
+## Deploying the final RTP version on the Mac
+
+The API and nginx routes stay the same; browsers still open `/camera/stream`.
+Only `camera-relay.mjs` changes the upstream to RTSP/RTP over UDP. The former
+camera `http://192.168.8.209:81/stream` endpoint is removed in final firmware.
+
+1. Install FFmpeg (`brew install ffmpeg`) and locate it with `command -v ffmpeg`.
+2. Update the repository to the final camera/relay revision, or replace its
+   `web` directory with the prepared `bus-rtp-web.zip` contents.
+3. In `~/Library/LaunchAgents/local.bus.web-bridge.plist`, set the environment
+   variable `BUS_FFMPEG` to that absolute path (usually `/opt/homebrew/bin/ffmpeg`).
+   LaunchAgents may not inherit the interactive shell's Homebrew PATH.
+4. Restart the existing service:
+
+```sh
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/local.bus.web-bridge.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.bus.web-bridge.plist
+launchctl kickstart -k gui/$(id -u)/local.bus.web-bridge
+```
+
+5. Reload the console. `/api/video-status` must report `transport: "rtsp/udp"`;
+   with video visible it should become connected. Hidden/closed viewers must
+   leave zero consumers and stop FFmpeg. Check `.build/web-bridge*.log` for errors.
+
+For a foreground smoke test, stop the existing service first to free port 8792,
+then run `BUS_FFMPEG="$(command -v ffmpeg)" node web/bridge.mjs`. No browser/API
+changes or npm packages are needed. Camera motor/servo tests are separate from
+viewing video; loading the stream does not acquire a control lease.
+
+The relay keeps bounded latest-frame buffering and low probe/analyze delays.
+It cannot guarantee glass-to-glass latency or fix a congested Wi-Fi network.
+Raw sensor capture timestamps are not carried through FFmpeg's MJPEG remux;
+`/status` and `/rtsp` expose the camera's current source-frame age for diagnostics.

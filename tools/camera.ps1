@@ -22,7 +22,17 @@ if (-not $BuildOnly) {
     }
 }
 New-Item -ItemType Directory -Force '.build' | Out-Null
-& $ArduinoCli compile --fqbn $fqbn --library (Join-Path $repoPath 'firmware/shared') --build-path (Join-Path $repoPath '.build/camera') 'firmware/camera'
+$rtspLibrary = Join-Path $repoPath '.build/deps/ESP32CameraRTSP'
+$rtspRevision = 'f8934e73387a1faeb4ab40870434f2e1ae236300'
+if (-not (Test-Path -LiteralPath (Join-Path $rtspLibrary 'library.properties'))) {
+    & git clone 'https://github.com/Isuru-rana/esp32cam-rtsp-arduino-ide.git' $rtspLibrary
+    if ($LASTEXITCODE -ne 0) { throw 'RTSP library download failed.' }
+    & git -C $rtspLibrary checkout --detach $rtspRevision
+    if ($LASTEXITCODE -ne 0) { throw 'RTSP revision checkout failed.' }
+}
+$actualRevision = & git -C $rtspLibrary rev-parse HEAD
+if ($LASTEXITCODE -ne 0 -or $actualRevision.Trim() -ne $rtspRevision) { throw 'Unexpected RTSP library revision.' }
+& $ArduinoCli compile --fqbn $fqbn --library (Join-Path $repoPath 'firmware/shared') --library $rtspLibrary --build-path (Join-Path $repoPath '.build/camera') 'firmware/camera'
 if ($LASTEXITCODE -ne 0) { throw "Camera build failed (exit $LASTEXITCODE)." }
 if ($BuildOnly) { Write-Output 'Camera firmware built; no flash written.'; return }
 & $ArduinoCli upload --fqbn $fqbn --port $Port --input-dir (Join-Path $repoPath '.build/camera')

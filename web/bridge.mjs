@@ -1,5 +1,6 @@
 import http from 'node:http';
 import dgram from 'node:dgram';
+import {pathToFileURL} from 'node:url';
 import {createCameraRelay} from './camera-relay.mjs';
 import {createControlService} from './control-service.mjs';
 
@@ -21,8 +22,8 @@ export function sendUdp(host,port,command) {
   });socket.send(JSON.stringify(command),port,host);
  });
 }
-export function createBridge({host='192.168.8.209',port=4210,streamPort=81,transport,riseMs=1000,autoStart=true}={}) {
- const relay=createCameraRelay({host,streamPort});
+export function createBridge({host='192.168.8.209',port=4210,rtspPort=8554,ffmpeg,spawnProcess,transport,riseMs=1000,autoStart=true}={}) {
+ const relay=createCameraRelay({host,rtspPort,ffmpeg,spawnProcess});
  const control=createControlService({...transport || {getStatus:()=>cameraJson(host,'/status'),newSession:()=>cameraJson(host,'/session','POST'),send:c=>sendUdp(host,port,c)},riseMs,autoStart});
  const server=http.createServer(async(req,res)=>{
   const reply=(code,body)=>{if(!res.destroyed)res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store'}).end(JSON.stringify(body));};
@@ -47,7 +48,7 @@ export function createBridge({host='192.168.8.209',port=4210,streamPort=81,trans
  server.on('close',()=>{control.close();relay.close();});
  return server;
 }
-if(process.argv[1]&&import.meta.url===new URL(process.argv[1],'file:').href){
- createBridge({host:process.env.BUS_CAMERA_IP||'192.168.8.209',riseMs:Number(process.env.BUS_ACCELERATION_MS||1000)})
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
+ createBridge({host:process.env.BUS_CAMERA_IP||'192.168.8.209',riseMs:Number(process.env.BUS_ACCELERATION_MS||1000),rtspPort:Number(process.env.BUS_RTSP_PORT||8554),ffmpeg:process.env.BUS_FFMPEG||'ffmpeg'})
  .listen(Number(process.env.PORT||8792),'127.0.0.1',()=>console.log('Bus control and camera relay on 127.0.0.1:8792'));
 }

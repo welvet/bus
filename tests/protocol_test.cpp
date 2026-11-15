@@ -27,14 +27,17 @@ void pinMode(int, int) {}
 void digitalWrite(int pin, int value) { digitalWrites.emplace_back(pin, value); }
 void analogWrite(int pin, int value) { pwmWrites.emplace_back(pin, value); }
 struct MockSerial {
+  size_t flushedBytes = 0;
   std::deque<uint8_t> input;
   std::vector<uint8_t> output;
   void begin(uint32_t baud) { assert(baud == 115200); }
   int available() { return int(input.size()); }
   int read() { int value = input.front(); input.pop_front(); return value; }
   size_t write(const uint8_t* bytes, size_t count) {
+    assert(flushedBytes == output.size()); // No second asynchronous write before completion.
     output.insert(output.end(), bytes, bytes + count); return count;
   }
+  void flush() { flushedBytes = output.size(); }
 } Serial, Serial1;
 struct Servo {
   bool enabled = false;
@@ -169,6 +172,7 @@ void resetActuators(uint32_t now = 0) {
   clockMs = now; pwmWrites.clear(); servoWrites.clear(); detachedAt.clear();
   attaches = 0; writeCounts.clear(); waits.clear(); arrivals.clear(); slowServo = false;
   feedbackFrames.clear(); Serial.output.clear(); Serial1.output.clear();
+  Serial.flushedBytes = Serial1.flushedBytes = 0;
 }
 void testActuators() {
   resetActuators();

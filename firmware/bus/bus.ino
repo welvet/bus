@@ -101,19 +101,26 @@ void receiveSerial() {
   updateLights();
 }
 
+template<typename Port>
+void sendReply(Port& port, const BusProtocol::Frame& reply) {
+  uint8_t bytes[BusProtocol::frameSize];
+  if (!BusProtocol::encode(reply, bytes)) return;
+  port.write(bytes, sizeof(bytes));
+  // Renesas core write() waits for TX_DATA_EMPTY, not TX_COMPLETE. Finish the
+  // last byte before reusing this buffer or starting the next reply.
+  port.flush();
+}
+
 void sendStatus() {
   BusProtocol::Frame status;
   if (uint32_t(millis() - reportedAt) >= 100 && xQueuePeek(feedback, &status, 0) == pdTRUE) {
-    uint8_t bytes[BusProtocol::frameSize];
-    if (BusProtocol::encode(status, bytes)) Serial.write(bytes, sizeof(bytes));
     displayShow(status.speed, status.angle, status.command == BusProtocol::Command::Applied, lightsOn);
     BusProtocol::Frame lights = {BusProtocol::Command::LightsApplied, lightsOn ? 1 : 0, 0};
-    if (BusProtocol::encode(lights, bytes)) Serial.write(bytes, sizeof(bytes));
     BusProtocol::Frame mode = {BusProtocol::Command::Mode, priority.automatic ? 1 : 0, 0};
-    if (BusProtocol::encode(mode, bytes)) Serial.write(bytes, sizeof(bytes));
     // Both links get the same applied motion, physical light output and mode.
     for (const auto& reply : {status, lights, mode}) {
-      if (BusProtocol::encode(reply, bytes)) Serial1.write(bytes, sizeof(bytes));
+      sendReply(Serial, reply);
+      sendReply(Serial1, reply);
     }
     reportedAt = millis();
   }

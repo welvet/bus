@@ -21,7 +21,7 @@ function harness(){
   }
   return {ok:true,json:async()=>({...state})};
  }});
- vm.runInContext(readFileSync(new URL('./public/app.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,''),context);
+ vm.runInContext(readFileSync(new URL('./public/app.js',import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,''),context);
  const flush=()=>new Promise(r=>setImmediate(r));
  const cycle=()=>timers[0]();
  const settle=async()=>{for(let i=0;i<6;i++){await flush();await cycle();}};
