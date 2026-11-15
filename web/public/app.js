@@ -2,11 +2,11 @@ import { cone, coneInput, conePosition } from './cone.js';
 const $=id=>document.getElementById(id);
 const landscape=matchMedia('(orientation: landscape)');
 const keys=new Set();
-let lightsBusy=false;
+let lightsBusy=false,fitVideo=false;
 let wanted=false,ready=false,suspended=false,touching=false;
 let lease=null,sequence=0,generation=0,busy=false,state=null,retryAt=0,nextReadAt=0;
 let pointer=null,lastPointer=null,pressPoint=null,sliding=false,reverse=false,x=0,y=0;
-const active=()=>wanted&&landscape.matches&&!document.hidden&&!suspended;
+const active=()=>wanted&&!document.hidden&&!suspended;
 const message=text=>{$('error').textContent=text;$('error').hidden=!text;};
 async function json(path,options={}) {
  try{
@@ -18,13 +18,17 @@ const post=(path,data)=>json(path,{method:'POST',headers:{'Content-Type':'applic
 function paint(){
  if(!lightsBusy){
   const light=state?.lights;
-  if(typeof light?.on==='boolean')$('lights').checked=light.on;
-  else if(typeof light?.requested==='boolean')$('lights').checked=light.requested;
+  if(typeof light?.requested==='boolean')$('lights').checked=light.requested;
+  else if(typeof light?.on==='boolean')$('lights').checked=light.on;
  }
- $('lights').disabled=lightsBusy;
+ $('lights').disabled=false;
+ $('lights').setAttribute('aria-busy',String(lightsBusy||!!state?.lights?.pending));
  $('speedValue').value=`${state?.output_speed||0}%`;$('angleValue').value=`${state?.angle||0}°`;
+ $('powerBar').style.width=`${Math.min(100,Math.abs(state?.output_speed||0))}%`;
+ $('connectionDot').classList.toggle('online',!!state?.ready);
+ $('console').classList.toggle('reversing',reverse);
  $('joystick').classList.toggle('ready',ready&&active());
- const p=conePosition(x,Math.abs(y));$('thumb').setAttribute('cx',p.x);$('thumb').setAttribute('cy',p.y);
+ const p=conePosition(x,Math.abs(y));for(const id of ['thumb','thumbHalo','thumbCenter']){$(id).setAttribute('cx',p.x);$(id).setAttribute('cy',p.y);}
  $('reverse').disabled=touching||keys.size>0;
  $('driveState').textContent=!wanted?'Slide to take control':!active()?'Control paused':ready?'You have control':'Connecting control…';
 }
@@ -52,9 +56,12 @@ async function cycle(){
    const observed=await json('/api/control/status');if(token!==generation)return;state=observed;
   }
   const camera=state.camera;
-  $('status').textContent=camera?(state.ready?'Bus online · Auto':camera.mode==='manual'?'Bus online · Xbox':'Bus waiting'):'Connecting to bus…';
-  if(!active()){ready=false;paint();return;}
-  if(state.lease!==lease)throw Error('Control lease changed. Toggle control to take over.');
+  $('status').textContent=camera?(state.ready?'ONLINE':camera.mode==='manual'?'XBOX':'WAITING'):(wanted?'CONNECTING':'STANDBY');
+  if(!active()){ready=false;if(state.lights?.error)message(state.lights.error);paint();return;}
+  if(state.lease!==lease){
+   lease=null;wanted=false;$('control').checked=false;resetInput();ready=false;
+   message(state.error||'Connection reset. Slide to take control.');paint();return;
+  }
   ready=state.ready;
   if(!ready){message(state.error||'Waiting for bus control…');paint();return;}
   // Backend requires neutral after acquisition, expiry, error or manual takeover.
@@ -72,14 +79,16 @@ async function cycle(){
   }
   if(token!==generation)return;
   if(responseSequence===sequence)state=result;
-  if(state.error)message(state.error);else message('');
+  if(state.lease!==lease){lease=null;wanted=false;$('control').checked=false;resetInput();ready=false;message(state.error||'Connection reset. Slide to take control.');paint();return;}
+  if(!state.ready){resetInput();ready=false;}
+  if(state.error||state.lights?.error)message(state.error||state.lights.error);else message('');
   if(lastPointer&&touching)movePointer(lastPointer);
   paint();
  }catch(e){if(token===generation){if(e.message!=='old-sequence')fault(e);}}
  finally{busy=false;}
 }
 function movePointer(event) {
-  if (event.pointerId !== pointer || !touching || !landscape.matches || document.hidden || suspended) return;
+  if (event.pointerId !== pointer || !touching || document.hidden || suspended) return;
   if (!sliding) {
     if (!pressPoint || Math.hypot(event.clientX-pressPoint.x,event.clientY-pressPoint.y)<4) return;
     sliding=true;
@@ -100,7 +109,7 @@ function movePointer(event) {
   x=input.steering; y=input.throttle*(reverse?-1:1); paint();
 }
 $('joystick').addEventListener('pointerdown',event=>{
-  if (!landscape.matches || document.hidden || suspended || pointer !== null) return;
+  if (document.hidden || suspended || pointer !== null) return;
   event.preventDefault();
   pointer=event.pointerId; touching=true; sliding=false; keys.clear();
   pressPoint={x:event.clientX,y:event.clientY};
@@ -118,15 +127,17 @@ $('reverse').onchange=()=>{
   reverse=$('reverse').checked; resetInput();
   if(ready && active()) immediate(true);
 };
+let lightsRequestVersion=0;
 $('lights').onchange=async()=>{
- const on=$('lights').checked;lightsBusy=true;paint();
+ const on=$('lights').checked,requestVersion=++lightsRequestVersion;lightsBusy=true;paint();
  try{
   const result=await post('/api/control/lights',{on});
-  if(state){state.lights={...result.lights,on:null};state.camera=result.camera;}
+  if(requestVersion!==lightsRequestVersion)return;
+  if(state){state.lights=result.lights;state.camera=result.camera;}
   else state=result;
   message('');
- }catch(error){message(error.message);$('lights').checked=!on;}
- finally{lightsBusy=false;paint();}
+ }catch(error){if(requestVersion===lightsRequestVersion){message(error.message);$('lights').checked=!on;}}
+ finally{if(requestVersion===lightsRequestVersion){lightsBusy=false;paint();}}
 };
 $('control').onchange=()=>{
  generation++;wanted=$('control').checked;
@@ -154,10 +165,15 @@ document.addEventListener('visibilitychange',()=>{updateVideo();if(document.hidd
 landscape.addEventListener('change',()=>{pause();paint();updateVideo();cycle();});
 window.addEventListener('resize',()=>{resetInput();if(ready) immediate(true);paint();});
 $('camera').onload=()=>{$('videoHint').textContent='';};
-$('camera').onerror=()=>{$('videoHint').textContent='Camera unavailable';};
+let videoRetry=null;
+$('camera').onerror=()=>{
+ $('videoHint').textContent='Camera reconnecting…';
+ clearTimeout(videoRetry);videoRetry=setTimeout(()=>updateVideo(true),2000);
+};
 function updateVideo(reconnect=false) {
+  clearTimeout(videoRetry);
   const image=$('camera');
-  if(document.hidden || !landscape.matches) {
+  if(document.hidden) {
     image.removeAttribute('src'); $('videoHint').textContent='Camera paused';
   } else if(reconnect || !image.getAttribute('src')) {
     $('videoHint').textContent='Connecting to camera…';
@@ -165,5 +181,10 @@ function updateVideo(reconnect=false) {
   }
 }
 $('reloadVideo').onclick=()=>updateVideo(true);
+$('fitVideo').onclick=()=>{
+ fitVideo=!fitVideo;$('console').classList.toggle('fit-video',fitVideo);
+ $('fitVideo').setAttribute('aria-pressed',String(fitVideo));
+ $('fitVideo').setAttribute('aria-label',fitVideo?'Fill screen with camera':'Show full camera frame');
+};
 updateVideo();
 paint(); setInterval(cycle,10); cycle();

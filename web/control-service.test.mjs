@@ -27,7 +27,7 @@ test('release, manual takeover and stale status discard motion rather than repla
  assert.equal(h.service.status().armed,false);assert.equal(h.service.status().real_speed,0);
  h.camera.mode='auto';await h.tick(900);await h.service.refresh();await flush();
  assert.equal(h.service.status().real_speed,0);
- h.service.release({lease:h.acquired.lease,sequence:100});assert.equal(h.service.status().lease,null);
+ assert.equal(h.service.status().lease,null);
  assert.throws(()=>h.input(0),/lease changed/);
 });
 test('invalid normalized intent cannot issue actuator commands',async t=>{
@@ -78,9 +78,52 @@ test('headlights work without acquiring motion, and old firmware is rejected',as
  const packets=[];let supported=false;
  const service=createControlService({autoStart:false,getStatus:async()=>({session:7,counter:10,have_counter:true,epoch:1,mode:'manual',renesas_age_ms:1,lights_api:supported?1:undefined,lights_on:false,lights_age_ms:10}),newSession:async()=>{throw Error('lights must not rotate session');},send:async p=>{packets.push(p);return {accepted:true,counter:p.counter};}});
  t.after(()=>service.close());
- await assert.rejects(service.setLights(true),/firmware update required/);assert.equal(packets.length,0);
- supported=true;const result=await service.setLights(true);
+ service.setLights(true);await flush();assert.match(service.status().lights.error,/firmware update required/);assert.equal(packets.length,0);
+ supported=true;const result=service.setLights(true);await flush();
  assert.equal(result.lease,null);assert.equal(result.lights.requested,true);
  assert.deepEqual(packets,[{op:'lights',session:7,counter:11,on:true}]);
  assert.equal(service.status().real_speed,0);assert.equal(service.status().armed,false);
+});
+
+test('power outage clears lease and ramp; reconnect never replays intent',async t=>{
+ let time=1000,online=true,session=7;const packets=[];
+ const service=createControlService({now:()=>time,autoStart:false,getStatus:async()=>{if(!online)throw Error('offline');return {session,epoch:1,mode:'auto',renesas_age_ms:1};},newSession:async()=>({session:++session}),send:async p=>{packets.push(p);return {accepted:true,counter:p.counter};}});
+ t.after(()=>service.close());let {lease}=service.acquire();await flush();
+ service.input({lease,sequence:1,throttle:0,steering:0,duration_ms:300});
+ service.input({lease,sequence:2,throttle:1,steering:1,duration_ms:300});time+=50;service.tick();await flush();
+ online=false;time+=800;await service.refresh();
+ assert.equal(service.status().lease,null);assert.equal(service.status().real_speed,0);assert.equal(service.status().angle,0);
+ online=true;time+=5000;await service.refresh();service.tick();
+ assert.equal(service.status().lease,null);assert.equal(service.status().armed,false);
+ assert.throws(()=>service.input({lease,sequence:3,throttle:1,steering:0,duration_ms:300}),/lease changed/);
+ const before=packets.length;({lease}=service.acquire());await flush();
+ assert.ok(packets.slice(before).every(p=>p.op!=='drive'));
+ assert.throws(()=>service.input({lease,sequence:1,throttle:1,steering:0,duration_ms:300}),/neutral required/);
+});
+test('camera session or epoch change invalidates ownership',async t=>{
+ for(const field of ['session','epoch']){
+  const h=await setup();t.after(()=>h.service.close());h.input(0);h.input(1);await h.tick();
+  h.camera[field]++;await h.tick(800);
+  assert.equal(h.service.status().lease,null);assert.equal(h.service.status().allowed_speed,0);
+ }
+});
+test('late failure from old connection cannot stop a newly acquired lease',async t=>{
+ let time=1000,rejectOld;const service=createControlService({now:()=>time,autoStart:false,getStatus:async()=>({session:7,epoch:1,mode:'auto',renesas_age_ms:1}),newSession:async()=>({session:7}),send:p=>p.op==='drive'?new Promise((_,reject)=>{rejectOld=reject;}):Promise.resolve({accepted:true,counter:p.counter})});
+ t.after(()=>service.close());let {lease}=service.acquire();await flush();
+ service.input({lease,sequence:1,throttle:0,steering:0,duration_ms:300});time+=50;service.tick();
+ ({lease}=service.acquire());await flush();rejectOld(Error('old timeout'));await flush();
+ assert.equal(service.status().lease,lease);assert.equal(service.status().ready,true);assert.equal(service.status().error,null);
+});
+
+test('light intent responds immediately and serializes latest absolute setting',async t=>{
+ let resolveStatus;const packets=[];
+ const service=createControlService({autoStart:false,getStatus:()=>new Promise(r=>{resolveStatus=r;}),newSession:async()=>({session:7}),send:async p=>{packets.push(p);return {accepted:true,counter:p.counter};}});
+ t.after(()=>service.close());
+ const first=service.setLights(true);assert.equal(first.lights.requested,true);assert.equal(first.lights.pending,true);
+ service.setLights(false);service.setLights(false);
+ resolveStatus({session:7,counter:10,have_counter:true,epoch:1,mode:'manual',renesas_age_ms:1,lights_api:1,lights_on:false,lights_age_ms:1});await flush();
+ assert.deepEqual(packets.map(p=>p.on),[true,false]);
+ assert.deepEqual(packets.map(p=>p.counter),[11,12]);
+ assert.equal(service.status().lights.requested,false);assert.equal(service.status().lights.pending,false);assert.equal(service.status().lights.error,null);
+ assert.ok(packets.every(p=>p.op==='lights'));
 });

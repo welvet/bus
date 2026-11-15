@@ -5,11 +5,11 @@ import {readFileSync} from 'node:fs';
 import {cone,coneInput,conePosition} from './public/cone.js';
 function harness(){
  const elements=new Map(),events={},handlers={},timers=[],requests=[],beacons=[],reads=[];
- const element=id=>elements.get(id)||elements.set(id,{checked:false,hidden:false,classList:{toggle(){}},setAttribute(){},getAttribute(){return this.src;},removeAttribute(){delete this.src;},setPointerCapture(){},addEventListener(n,f){handlers[n]=f;},getBoundingClientRect:()=>({left:0,top:0,width:220,height:320})}).get(id);
+ const element=id=>elements.get(id)||elements.set(id,{checked:false,hidden:false,style:{},classList:{toggle(){}},setAttribute(){},getAttribute(){return this.src;},removeAttribute(){delete this.src;},setPointerCapture(){},addEventListener(n,f){handlers[n]=f;},getBoundingClientRect:()=>({left:0,top:0,width:220,height:320})}).get(id);
  const orientation={matches:true,addEventListener(n,f){events.orientation=f;}};
  const state={lights:{on:false,requested:false,supported:true},lease:null,ready:false,armed:false,camera:{mode:'auto'},angle:0,output_speed:0,error:null};let time=10000,delay=false,resolveInput,neutralRequired=false;
  const document={hidden:false,getElementById:element,addEventListener(n,f){events[n]=f;}};
- const context=vm.createContext({cone,coneInput,conePosition,document,matchMedia:()=>orientation,window:{addEventListener(n,f){events[n]=f;}},navigator:{sendBeacon(path,data){beacons.push({path,data});return true;}},Blob,AbortSignal,Date:{now:()=>time},setInterval(fn){timers.push(fn);},fetch:async(path,options={})=>{
+ const context=vm.createContext({cone,coneInput,conePosition,document,matchMedia:()=>orientation,window:{addEventListener(n,f){events[n]=f;}},navigator:{sendBeacon(path,data){beacons.push({path,data});return true;}},Blob,AbortSignal,setTimeout,clearTimeout,Date:{now:()=>time},setInterval(fn){timers.push(fn);},fetch:async(path,options={})=>{
   if(!options.body)reads.push(path);
   const body=options.body?JSON.parse(options.body):null;if(body)requests.push({path,...body});
   if(path==='/api/control/lights'){state.lights={on:body.on,requested:body.on,supported:true};}
@@ -39,12 +39,13 @@ test('slide acquires control, sends neutral first, then raw intent; release and 
  h.handlers.pointerup({pointerId:1});const neutral=JSON.parse(await h.beacons.at(-1).data.text());assert.equal(neutral.throttle,0);assert.equal(neutral.steering,0);
  h.element('control').checked=false;h.element('control').onchange();assert.equal(h.beacons.at(-1).path,'/api/control/release');
 });
-test('portrait and hide release control, and no old gesture is replayed',async()=>{
+test('portrait allows control; rotation and hiding discard the old gesture',async()=>{
  const h=harness();await h.flush();h.down();h.move(1,1);await h.settle();
- h.orientation.matches=false;h.events.orientation();await h.flush();assert.equal(h.beacons.at(-1).path,'/api/control/release');
- const count=h.requests.filter(r=>r.path==='/api/control/input').length;h.move(1,1);await h.cycle();
- assert.equal(h.requests.filter(r=>r.path==='/api/control/input').length,count);
- h.orientation.matches=true;h.events.orientation();await h.settle();assert.equal(h.requests.at(-1).throttle,0);
+ h.orientation.matches=false;h.events.orientation();await h.settle();
+ assert.equal(h.beacons.at(-1).path,'/api/control/release');
+ assert.equal(h.requests.at(-1).throttle,0,'rotation clears old gesture');
+ h.down(2);h.move(.5,1,2);await h.settle();assert.equal(h.requests.at(-1).throttle,1);
+ h.events.pagehide();assert.equal(h.beacons.at(-1).path,'/api/control/release');
 });
 test('release while acquisition pending stays neutral; reverse changes only raw throttle sign',async()=>{
  const h=harness();await h.flush();h.down();h.move(1,1);h.handlers.pointerup({pointerId:1});await h.settle();
@@ -80,4 +81,15 @@ test('headlight switch sends only an absolute light setting, without taking moti
  const h=harness();await h.flush();h.element('lights').checked=true;await h.element('lights').onchange();
  assert.equal(h.requests.at(-1).path,'/api/control/lights');assert.equal(h.requests.at(-1).on,true);
  assert.ok(!h.requests.some(r=>r.path==='/api/control/acquire'||r.path==='/api/control/input'));
+});
+
+test('lost backend lease clears held gesture and requires a new slide',async()=>{
+ const h=harness();await h.flush();h.down();h.move(0,1);await h.settle();
+ h.state.lease=null;h.state.ready=false;h.state.armed=false;h.state.error='Bus disconnected';
+ await h.cycle();assert.equal(h.element('control').checked,false);
+ const before=h.requests.length;await h.settle();
+ assert.ok(!h.requests.slice(before).some(r=>r.path==='/api/control/acquire'));
+ h.down(2);h.move(0,1,2);await h.settle();
+ const inputs=h.requests.slice(before).filter(r=>r.path==='/api/control/input');
+ assert.equal(inputs[0].throttle,0);assert.equal(inputs.at(-1).throttle,1);
 });

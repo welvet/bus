@@ -1,6 +1,6 @@
 # Bus LAN console and control service
 
-http://bus.local/ or http://bus.lan/. Static landscape camera/cone UI; Node backend
+http://bus.local/ or http://bus.lan/. Static portrait/landscape camera/cone UI; Node backend
 owns all web/CV motor policy, camera sessions, UDP counters and acceleration.
 The browser sends raw normalized intent. It does not map PWM, minimum output,
 steering limits or nonlinear response. Firmware retains its independent range
@@ -92,10 +92,10 @@ normal browser/CV control.
 
 ## Browser
 
-Image left, upright 40° cone right; full steering at zero/full throttle, reverse
-switch. Dragging takes control; touch alone doesn't. Neutral arming happens before
+Fullscreen camera with an upright 40° cone overlaid on the right; full steering
+at zero/full throttle, reverse switch. Dragging takes control; touch alone doesn't. Neutral arming happens before
 a held gesture applies. Release centers and sets desired speed zero immediately.
-Control switch releases the lease. Hidden/portrait pages release video and motion;
+Control switch releases the lease. Hidden pages release video and motion; rotating clears the current gesture;
 errors appear at the top. The cone remains interactive. Desktop arrows supported.
 Readouts show backend output/angle, not locally calculated motor targets.
 
@@ -113,7 +113,8 @@ Readouts show backend output/angle, not locally calculated motor targets.
   when the last leaves. It uses stream copy to remux JPEG into browser MJPEG, with no image re-encoding. Slow consumers keep only the latest pending frame and
   disconnect after five seconds without draining. No idle video transfer/retries. A five-second complete-frame watchdog closes a stalled receiver; /api/video-status exposes an error.
   This does not power down ESP Wi-Fi/camera hardware.
-- Camera view: -90° rotation and horizontal mirroring in CSS. Raw API unchanged.
+- Camera view: -90° rotation and horizontal mirroring in CSS. Fill-screen crop
+  by default; fit/fill icon shows the uncropped frame. Raw API unchanged.
 
 ## Validation
 
@@ -208,3 +209,33 @@ The relay keeps bounded latest-frame buffering and low probe/analyze delays.
 It cannot guarantee glass-to-glass latency or fix a congested Wi-Fi network.
 Raw sensor capture timestamps are not carried through FFmpeg's MJPEG remux;
 `/status` and `/rtsp` expose the camera's current source-frame age for diagnostics.
+## Game-style overlay
+
+The camera occupies the viewport behind all controls. HUD buttons provide lights,
+video reconnect, fit/fill and motion control; telemetry and reverse are compact
+overlays. The error banner has its own absolutely positioned anchor with bounded
+height/scrolling and never participates in control layout. Cone geometry, raw
+intent API, motor policy and timing are unchanged. Rotation clears the held gesture.
+No new external library, asset requests or camera consumers are introduced.
+Local browser access is disabled in Work settings, so visual/touch QA must be
+checked on the user's device; existing browser-control regression tests pass.
+
+### Reconnecting after power off
+
+Connection failure, missing UART feedback, changed session/Auto epoch, or expired
+ownership clears the browser lease and all motion/ramp state. Old asynchronous
+replies are ignored. Reconnect never replays held input: slide again to acquire a
+new session, which starts with neutral. The camera image retries every two
+seconds while visible. Status polling never acquires control.
+Only one process can listen on the bridge's localhost port 8792; LaunchAgent
+manages that process. Reset reasons are logged with `[bus] control reset`.
+
+Portrait layout keeps the camera full-screen, with a large cone at bottom right
+and a large reverse switch on the left. Errors remain in a fixed top overlay.
+
+Light requests return immediately with `lights.requested`, `pending`, and `error`.
+The backend delivers absolute on/off settings asynchronously, serializing rapid
+changes to the latest desired value. Repeated off is safe with fresh counters.
+The UI shows requested state ahead of delayed physical feedback (`lights.on`);
+delivery errors appear in the fixed error overlay. Pending means delivery to
+the camera, not confirmation of physical illumination.
