@@ -23,7 +23,6 @@ Auto control accepts camera-ESP motion on a separate wired UART.
   library; the camera frame is copied to PSRAM and released before sending.
 - `firmware/bus/display.cpp`: built-in 12x8 LED matrix display of software-applied
   speed, servo angle and stopped state; its pixel layout is in `display.h`.
-- `firmware/bus/bus.ino.old`: unchanged archive of the previous UDP firmware.
 
 ## Controls and stopping
 
@@ -273,11 +272,12 @@ commands are sent by automated checks.
 ## Browser control on the Mac
 
 A local static console at http://bus.local/ (also bus.lan) shows the camera and
-provides a landscape joystick, a persistent control switch and desktop arrow keys.
+provides a portrait iPhone console, joystick, reverse, lights and control release.
 nginx proxies camera HTTP/MJPEG; a small loopback Node bridge translates the
 normalized HTTP intent API into camera UDP commands, applying response curves
-and the acceleration limit on the Mac. See [web/README.md](web/README.md)
-for deployment, API bodies, stopping behavior and verification limits.
+on the Mac. The time-based acceleration ramp is disabled by default. See [web/README.md](web/README.md)
+for the [HTTP API reference](web/README.md#http-api), deployment, stopping
+behavior and verification limits.
 
 ## Renesas LED matrix
 

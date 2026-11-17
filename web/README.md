@@ -1,264 +1,182 @@
-# Bus LAN console and control service
+# Bus web console and API
 
-http://bus.local/ or http://bus.lan/. Static portrait/landscape camera/cone UI; Node backend
-owns all web/CV motor policy, camera sessions, UDP counters and acceleration.
-The browser sends raw normalized intent. It does not map PWM, minimum output,
-steering limits or nonlinear response. Firmware retains its independent range
-checks, source priority, neutral arming and watchdogs. The final camera RTP firmware is required.
+Open **http://bus.local/** or **http://bus.lan/** on the home LAN. nginx serves
+an iPhone portrait console and proxies the API to a local Node service. The
+backend owns response shaping, camera sessions and UDP counters. Firmware keeps
+its own source priority, neutral arming, range checks and watchdogs.
 
-## Motor policy
+## HTTP API
 
-`motion-policy.mjs` maps normalized steering/throttle (-1..1). Throttle has a 2%
-deadzone, then desired motor magnitude is `30 + round(70 * travel²)`. Zero remains
-zero. Steering uses the Xbox 12% deadzone and quadratic response, capped at ±45°;
-the backend also owns the installed steering sign correction.
+Use `http://bus.local` or `http://bus.lan` as the base URL. Every POST requires
+`Content-Type: application/json`; cross-origin browser writes are rejected.
+Access is restricted by nginx to localhost and the home LAN, without passwords.
 
-Three values are exposed:
-
-- `desired_speed`: signed, shaped requested motor percentage.
-- `allowed_speed`: unsigned acceleration allowance in percentage points.
-- `real_speed` / integer `output_speed`: signed minimum magnitude of desired and
-  allowed. These are software command values, NOT measured physical speed.
-
-Allowance rises at 100 percentage points/second: from zero, 50 at 0.5 seconds
-and 100 at 1 second. The 30% floor applies ONLY to desired speed; the allowance
-starts at zero, so early ramp outputs can be below 30%. A low desired target caps
-both output and allowance, preventing saved acceleration credit. Reductions are
-immediate; the next increase ramps from the lower output. Desired speed can be
-updated throughout the ramp without resetting an ongoing increase. Reversal
-resets to zero and ramps in the new direction. Zero input resets allowance.
-Steering is not ramped. A scheduler gap above 200 ms discards acceleration credit.
-`BUS_ACCELERATION_MS` configures the zero-to-100 time (default 1000).
-
-The backend emits bounded Drive frames at 20 Hz, with a 200 ms device lifetime.
-Input is a latest-state lease, not a queue. Stop, input expiry, manual takeover,
-failed commands or stale camera status reset the allowance and require neutral
-before moving again. Missing/expired client input cannot be kept alive merely
-because the backend remains running. Up to twelve acknowledgments can be in flight;
-there is no queued movement backlog. Source/epoch/session rejection remains on
-the camera/Renesas too.
-
-## Clean HTTP API (same origin, LAN)
-
-All POSTs require `Content-Type: application/json`. No cross-origin writes.
-
-| Route | Method | Purpose |
+| Method | Path | Purpose |
 | --- | --- | --- |
-| `/api/control/acquire` | POST `{}` | Replace current lease, begin camera Auto setup, no Drive |
-| `/api/control/status` | GET | Local control state, desired/allowed/output, readiness and camera diagnostics |
-| `/api/control/input` | POST | Replace latest normalized steering/throttle intent |
-| `/api/control/release` | POST | Release matching lease and Stop |
-| `/api/status` | GET | Raw camera diagnostics only |
-| `/api/snapshot` | GET | Sensor-native JPEG |
-| `/camera/stream` | GET | Shared browser MJPEG, received from camera RTP/UDP through FFmpeg |
-| `/api/video-status` | GET | Relay consumers and upstream state |
+| POST | `/api/control/acquire` | Body `{}`; replace current owner and start Auto setup |
+| GET | `/api/control/status` | Read lease, readiness, output, lights and errors |
+| POST | `/api/control/input` | Replace latest normalized steering/throttle intent |
+| POST | `/api/control/release` | Stop and release the matching lease |
+| POST | `/api/control/lights` | Absolute headlight setting, independent of motion |
+| GET | `/camera/stream` | Shared browser MJPEG stream |
+| GET | `/api/video-status` | Video consumers, connection and receiver error |
+| GET | `/api/status` | Raw camera, UART and firmware diagnostics |
+| GET | `/api/snapshot` | One sensor-native JPEG |
 
-Acquire returns a string `lease` immediately. Setup happens asynchronously;
-GET control/status until `ready: true`. `error` explains camera/UART issues.
-Then send neutral once:
+### Driving lifecycle
 
-```json
-{"lease":"returned-lease","sequence":1,"steering":0,"throttle":0,"duration_ms":300}
-```
-
-Then update desired intent, for example:
+1. POST `{}` to `/api/control/acquire`. Save the returned string `lease`.
+   Setup is asynchronous and sends Stop/Auto only, never Drive.
+2. Poll `/api/control/status` until `ready: true`. Check `error` on failure.
+3. POST neutral to `/api/control/input` before movement:
 
 ```json
-{"lease":"returned-lease","sequence":2,"steering":0.5,"throttle":1,"duration_ms":300}
+{"lease":"YOUR_LEASE","sequence":1,"steering":0,"throttle":0,"duration_ms":300}
 ```
 
-Repeat latest state before duration expires; browser targets 100 Hz (10 ms) and 300 ms.
-`steering`/`throttle` are finite numbers -1..1, positive throttle forward, negative
-reverse. Steering coordinates match the browser's current mapping. Exact servo
-sign lives in the backend; use readouts for diagnostics. `duration_ms` is integer
-1..1000. `sequence` is a strictly increasing safe integer across input/release
-operations for this lease. No hardware counters, epochs or sessions are needed.
-A neutral input centers and stops while keeping the lease; release detaches:
+4. Send fresh intent regularly; every **50 ms** is suitable for a CV/client loop:
 
 ```json
-{"lease":"returned-lease","sequence":3}
+{"lease":"YOUR_LEASE","sequence":2,"steering":0.5,"throttle":0.4,"duration_ms":300}
 ```
 
-POST the last body to /api/control/release. A stopped/expired controller requires
-neutral throttle before a subsequent moving input. An idle lease expires after
-10 seconds without input; setup itself sends only Stop/Auto, never Drive.
-Acquire is explicit takeover: it invalidates the previous client. Don't run
-multiple writers against one lease. Successful input means backend intent was
-accepted; output/ramp state updates separately and does not prove hardware motion.
-The old `/api/command` and `/api/session` HTTP routes return **410**, so HTTP
-clients cannot bypass the policy with raw motor commands. Camera LAN firmware
-endpoints still exist for diagnostics and recovery; do not use direct UDP for
-normal browser/CV control.
+`steering` and `throttle` must be finite numbers from **-1 to +1**. Positive
+throttle is forward; negative is reverse. Steering follows the console mapping,
+with installed servo polarity handled by the backend. `duration_ms` is an integer
+from 1 to 1000. Increase the safe-integer `sequence` for every input and release
+in a lease. Clients do not manage hardware counters, sessions or epochs.
 
-## Browser
+Send zero steering/throttle to center and stop while retaining ownership. To
+stop and release, POST to `/api/control/release`:
 
-Fullscreen camera with an upright 40° cone overlaid on the right; full steering
-at zero/full throttle, reverse switch. Dragging takes control; touch alone doesn't. Neutral arming happens before
-a held gesture applies. Release centers and sets desired speed zero immediately.
-Control switch releases the lease. Hidden pages release video and motion; rotating clears the current gesture;
-errors appear at the top. The cone remains interactive. Desktop arrows supported.
-Readouts show backend output/angle, not locally calculated motor targets.
+```json
+{"lease":"YOUR_LEASE","sequence":3}
+```
+
+Acquiring control replaces the previous owner. Use one writer per lease. Missing
+fresh input expires motion; after stopping/expiry, neutral throttle is required
+before moving again. Ownership expires after ten seconds without input.
+Successful input means the backend accepted intent, not that hardware moved.
+The old `/api/command` and `/api/session` routes return 410; normal clients should
+use this API rather than direct firmware UDP commands.
+
+### Timing and motor policy
+
+Input requests replace the latest state; they never queue movement. An independent
+**50 ms pump** sends current output with a **200 ms device lifetime**. The browser
+targets one update every 10 ms with one HTTP request in flight and a 300 ms input
+lifetime; actual throughput depends on browser scheduling and network latency.
+CV clients must stop sending movement if their perception loop becomes stale.
+
+The backend applies a 2% throttle deadzone, then a quadratic desired magnitude
+of `30 + round(70 * travel²)`. Zero stays zero. Steering has a 12% deadzone,
+quadratic response and ±45° limits. **The time-based acceleration ramp is disabled
+by default** (`BUS_ACCELERATION_MS=0`); the next pump tick sends mapped speed.
+A positive value optionally sets the zero-to-100 ramp time in milliseconds.
+
+Status includes `desired_speed`, unsigned `allowed_speed`, `real_speed`, integer
+`output_speed`, `angle`, `rise_ms`, `armed`, `ready`, `remaining_ms` and `error`.
+These are software targets, not measured physical speed or steering position.
+
+A transient UDP acknowledgment timeout stops/disarms motion without revoking
+ownership. The browser discards held input on that stop. Failed HTTP status polls
+are tolerated while cached status is less than four seconds old. Stale status,
+missing UART feedback, changed session/Auto epoch or manual takeover clears
+ownership and motion. Late replies cannot change a newer connection. Reconnect
+requires fresh control and neutral; old movement is never replayed. Reset reasons
+are timestamped in the service error log and included in lease errors.
+
+### Lights
+
+```sh
+curl http://bus.local/api/control/lights \
+  -H 'Content-Type: application/json' -d '{"on":false}'
+```
+
+`on` is an absolute boolean, not a toggle. Repeated `false` keeps lights off;
+the backend supplies fresh counters. No lease, Auto or Drive is needed, and
+light commands never extend a movement deadline.
+
+Responses return immediately. The backend serializes delivery, retaining the
+latest desired state during rapid changes. Status exposes:
+
+- `lights.requested`: backend's desired state, or null after reset.
+- `lights.pending`: command delivery is in progress.
+- `lights.on`: fresh firmware-reported state, otherwise null.
+- `lights.error`: asynchronous delivery error, otherwise null.
+- `lights.supported`: whether the observed camera advertises the light API.
+
+The button follows requested state immediately. Acceptance is not confirmation
+of physical illumination. Unsupported firmware is reported through `lights.error`.
+Both camera ESP32 and Renesas need light-support firmware; onboard Xbox S3 does
+not. Changed Xbox light selections can override a web setting; repeated identical
+Xbox selections do not. Auto-entry indication temporarily blinks the lights.
+
+## Console and video
+
+Portrait-only, safe-area-aware camera view with a small bottom-right cone and
+unchanged thumb circle. Lights sit above R on the left. Dragging takes control;
+release centers steering and stops. The power button releases ownership.
+Landscape/hidden pages release motion and video. Errors use a fixed overlay;
+telemetry remains accessible but visually hidden. Add to Home Screen from Safari
+for standalone display. The manifest requests portrait; iOS may still rotate.
+
+Video always fits without cropping, with -90° rotation and horizontal mirroring
+in CSS. API JPEGs remain sensor-native. Camera reconnect retries every two seconds
+while the page is visible in portrait.
+
+One FFmpeg receiver reads `rtsp://192.168.8.209:8554/mjpeg/1` over RTP/UDP for all
+viewers and remuxes JPEG to MJPEG without re-encoding. First viewer starts it;
+last viewer leaving stops it. Slow viewers retain one latest pending frame and
+are disconnected after five seconds without draining. A five-second complete-frame
+watchdog closes stalled receivers. This does not power down the camera hardware.
+The former camera port-81 HTTP stream is removed.
+
+Packet reordering is disabled (`max_delay=0`, `reorder_queue_size=0`) to avoid the
+previous configured 100 ms reorder wait. Late/out-of-order Wi-Fi packets may lose
+frames instead. Frame rate alone is not a glass-to-glass latency measurement;
+raw capture timestamps are not preserved through the FFmpeg remux.
 
 ## Deployment
 
-- Static root: web/public. nginx block: web/nginx-bus.conf.
-- `node web/bridge.mjs`, loopback 127.0.0.1:8792, no npm dependencies. FFmpeg is required.
-- Camera: 192.168.8.209, HTTP :80 / RTSP :8554 / control UDP :4210.
-  Optional BUS_CAMERA_IP, BUS_RTSP_PORT, PORT and BUS_ACCELERATION_MS env vars. Set BUS_FFMPEG to the absolute ffmpeg executable path for a LaunchAgent.
-- LaunchAgent: ~/Library/LaunchAgents/local.bus.web-bridge.plist.
-  Logs: .build/web-bridge*.log. Login startup.
-- nginx: ~/.config/nginx/nginx.conf; original backup nginx.conf.before-bus-web.
-  Other virtual hosts preserved. Access localhost/home LAN only, no passwords.
-- camera-relay.mjs launches one FFmpeg RTP/UDP receiver for the first consumer and stops it immediately
-  when the last leaves. It uses stream copy to remux JPEG into browser MJPEG, with no image re-encoding. Slow consumers keep only the latest pending frame and
-  disconnect after five seconds without draining. No idle video transfer/retries. A five-second complete-frame watchdog closes a stalled receiver; /api/video-status exposes an error.
-  This does not power down ESP Wi-Fi/camera hardware.
-- Camera view: -90° rotation and horizontal mirroring in CSS. Fill-screen crop
-  by default; fit/fill icon shows the uncropped frame. Raw API unchanged.
+- Static root: `web/public`; nginx host block: `web/nginx-bus.conf`.
+- Backend: `node web/bridge.mjs`, listening on `127.0.0.1:8792`.
+- No npm dependencies; a working FFmpeg executable is required.
+- Camera: `192.168.8.209`, HTTP 80, RTSP 8554, control UDP 4210.
+- Options: `BUS_CAMERA_IP`, `BUS_RTSP_PORT`, `PORT`, `BUS_ACCELERATION_MS`,
+  `BUS_FFMPEG`. Set `BUS_FFMPEG` to an absolute executable path for launchd.
+- LaunchAgent: `~/Library/LaunchAgents/local.bus.web-bridge.plist`.
+- Logs: `.build/web-bridge.log` and `.build/web-bridge-error.log`.
+- Live nginx config: `~/.config/nginx/nginx.conf`; preserve other virtual hosts.
 
-## Validation
+For code-only updates:
 
-`cd web && npm test` (no install needed), or `node --test web/*.test.mjs`.
+```sh
+launchctl kickstart -k gui/$(id -u)/local.bus.web-bridge
+```
 
-Pure tests cover response shaping, 0/50/100 timing, changes mid-ramp, immediate
-reductions, low-target credit, reset/reverse and stalls. Controller tests cover
-neutral arming, expiry even before the timer runs, lease ownership, manual
-takeover and invalid input. UI tests assert raw intent rather than motor values.
-HTTP/UDP/video tests use simulated transports, receiver processes and loopback clients, not the bus.
-Read-only deployment checks are safe; no live acquire/input calls were made by
-the agent for acceleration testing. iOS visual QA is unavailable in Work settings.
-Real driving response still needs hardware verification.
-
-UI cadence: a 10 ms timer targets 100 input updates/second, with one HTTP input
-request in flight at a time. While active, each input response supplies backend
-state; no redundant status GET precedes it. Slow browser/Mac networking can
-still lower the actual rate. Input lifetime stays 300 ms; expiry resets output
-and acceleration instead of performing a gradual decay. Backend outputs at
-20 Hz with a 200 ms device lifetime independently of browser input requests.
-
-Backend input handlers only replace the latest observed intent and deadline;
-they never send Drive directly. A separate asynchronous 50 ms pump emits one
-current acceleration-limited command per tick, without waiting for UDP ACKs.
-No expired intent is replayed. Immediate Stop/release remains independent of
-that cadence. The UI keeps one HTTP request in flight and samples the newest
-gesture at the next free 10 ms slot, rather than queuing stale gestures. Actual
-UI throughput is limited by browser scheduling/network RTT. Idle/setup status
-reads are throttled to 250 ms. The 300 ms client lease is unchanged.
-
-The UI handles neutral-required races automatically: if a moving request
-finds the backend expired/disarmed since the last response, it sends a newer
-zero-throttle/zero-steering input first. Only a still-held live gesture resumes
-on a subsequent update, with acceleration restarted by the backend. Released
-gestures are not replayed. The interlock and 300 ms expiry remain unchanged.
-
-## Headlights
-
-Header Lights switch uses `POST /api/control/lights` with `{"on":true}` or
-`{"on":false}`. This is independent of the motion lease and never calls
-Acquire, Auto or Drive, nor refreshes a motion deadline. Backend status includes
-`lights.supported`, `lights.requested`, `lights.on` (fresh reported D7 state,
-otherwise null). Requested state is not proof of LED current.
-
-**Requires new camera AND Renesas firmware.** The onboard S3 sketch need not
-change. Camera status advertises `lights_api:1`, `lights_on`, `lights_age_ms`.
-An older camera is rejected with HTTP 501 and an explicit firmware-update message.
-Do not flash the dummy-credential .build camera artifact; compile using your
-real, ignored camera config.
-
-The camera accepts session/counter-protected UDP `{op:"lights",session,counter,
-on:true}` and forwards a Lights frame on its UART. Renesas applies camera or
-controller light selections without touching the motion queues/watchdogs.
-Repeated identical Xbox light frames do not undo a web selection; changing
-Xbox B's selected on/off value applies that selection again. Auto-entry blink
-retains its existing temporary behavior and restores the saved light state.
-
-Validation: camera and Renesas firmware compile on the Windows toolchain.
-Firmware host tests and all 27 web tests pass. The final camera firmware was
-flashed and tested over Wi-Fi; physical light and motor checks remain separate.
-
-## Deploying the final RTP version on the Mac
-
-The API and nginx routes stay the same; browsers still open `/camera/stream`.
-Only `camera-relay.mjs` changes the upstream to RTSP/RTP over UDP. The former
-camera `http://192.168.8.209:81/stream` endpoint is removed in final firmware.
-
-1. Install FFmpeg (`brew install ffmpeg`) and locate it with `command -v ffmpeg`.
-2. Update the repository to the final camera/relay revision, or replace its
-   `web` directory with the prepared `bus-rtp-web.zip` contents.
-3. In `~/Library/LaunchAgents/local.bus.web-bridge.plist`, set the environment
-   variable `BUS_FFMPEG` to that absolute path (usually `/opt/homebrew/bin/ffmpeg`).
-   LaunchAgents may not inherit the interactive shell's Homebrew PATH.
-4. Restart the existing service:
+After changing the LaunchAgent environment:
 
 ```sh
 launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/local.bus.web-bridge.plist
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.bus.web-bridge.plist
-launchctl kickstart -k gui/$(id -u)/local.bus.web-bridge
 ```
 
-5. Reload the console. `/api/video-status` must report `transport: "rtsp/udp"`;
-   with video visible it should become connected. Hidden/closed viewers must
-   leave zero consumers and stop FFmpeg. Check `.build/web-bridge*.log` for errors.
+Check `/api/video-status`: `transport` should be `rtsp/udp`; video becomes
+connected while a viewer is present, then stops with zero consumers. Viewing
+video does not acquire motion control. Do not start a second backend on port 8792.
 
-For a foreground smoke test, stop the existing service first to free port 8792,
-then run `BUS_FFMPEG="$(command -v ffmpeg)" node web/bridge.mjs`. No browser/API
-changes or npm packages are needed. Camera motor/servo tests are separate from
-viewing video; loading the stream does not acquire a control lease.
+## Validation
 
-The relay keeps bounded latest-frame buffering and low probe/analyze delays.
-It cannot guarantee glass-to-glass latency or fix a congested Wi-Fi network.
-Raw sensor capture timestamps are not carried through FFmpeg's MJPEG remux;
-`/status` and `/rtsp` expose the camera's current source-frame age for diagnostics.
-## Game-style overlay
+```sh
+node --test web/*.test.mjs
+```
 
-The camera occupies the viewport behind all controls. HUD buttons provide lights,
-video reconnect, fit/fill and motion control; telemetry and reverse are compact
-overlays. The error banner has its own absolutely positioned anchor with bounded
-height/scrolling and never participates in control layout. Cone geometry, raw
-intent API, motor policy and timing are unchanged. Rotation clears the held gesture.
-No new external library, asset requests or camera consumers are introduced.
-Local browser access is disabled in Work settings, so visual/touch QA must be
-checked on the user's device; existing browser-control regression tests pass.
+Tests use simulated firmware/transports, receiver processes and localhost clients.
+They cover shaping, optional ramp, expiry, ownership, reconnect, lights, UI input
+and bounded shared video relay. They do not drive the bus. Physical controls,
+iPhone layout and end-to-end video latency require device verification.
 
-### Reconnecting after power off
-
-Connection failure, missing UART feedback, changed session/Auto epoch, or expired
-ownership clears the browser lease and all motion/ramp state. Old asynchronous
-replies are ignored. Reconnect never replays held input: slide again to acquire a
-new session, which starts with neutral. The camera image retries every two
-seconds while visible. Status polling never acquires control.
-Only one process can listen on the bridge's localhost port 8792; LaunchAgent
-manages that process. Reset reasons are logged with `[bus] control reset`.
-
-Portrait layout keeps the camera full-screen, with a large cone at bottom right
-and a large reverse switch on the left. Errors remain in a fixed top overlay.
-
-Light requests return immediately with `lights.requested`, `pending`, and `error`.
-The backend delivers absolute on/off settings asynchronously, serializing rapid
-changes to the latest desired value. Repeated off is safe with fresh counters.
-The UI shows requested state ahead of delayed physical feedback (`lights.on`);
-delivery errors appear in the fixed error overlay. Pending means delivery to
-the camera, not confirmation of physical illumination.
-
-### iPhone console
-
-The console is portrait-only, edge-to-edge, with safe-area spacing for controls.
-Landscape pauses motion and video. Add to Home Screen from Safari to launch
-without browser chrome. The standalone manifest requests portrait orientation;
-iOS browser tabs still follow system rotation. Telemetry stays accessible but
-visually hidden, and errors stay in a fixed overlay above the controls.
-
-Transient UDP acknowledgement loss stops/disarms motion and resets acceleration
-without revoking the lease. Fresh neutral is required; the browser discards held
-input on the reported stop. A failed status request is tolerated while the last
-status is under four seconds old. Stale status and actual session/epoch changes
-still revoke ownership. Lease errors include the preceding reset reason.
-
-Acceleration ramp is disabled by default (`BUS_ACCELERATION_MS=0`): the next
-50 ms output tick sends the mapped desired speed immediately. The 30% minimum,
-input response mapping, steering limits, neutral interlock and expiry remain.
-A positive BUS_ACCELERATION_MS can re-enable the optional time ramp.
-
-RTSP receiver packet reordering is disabled (`max_delay=0`,
-`reorder_queue_size=0`) to avoid the previous 100 ms reorder wait.
-Late/out-of-order Wi-Fi packets may cause frame loss instead of added latency.
+`node web/monitor-camera.mjs 600` records a ten-minute camera stability sample in
+ignored `.build/` logs. It briefly acquires Auto then releases; it never sends
+Drive, but it does replace the current control owner. Run it while not driving.
