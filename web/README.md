@@ -258,3 +258,7 @@ Acceleration ramp is disabled by default (`BUS_ACCELERATION_MS=0`): the next
 50 ms output tick sends the mapped desired speed immediately. The 30% minimum,
 input response mapping, steering limits, neutral interlock and expiry remain.
 A positive BUS_ACCELERATION_MS can re-enable the optional time ramp.
+
+RTSP receiver packet reordering is disabled (`max_delay=0`,
+`reorder_queue_size=0`) to avoid the previous 100 ms reorder wait.
+Late/out-of-order Wi-Fi packets may cause frame loss instead of added latency.

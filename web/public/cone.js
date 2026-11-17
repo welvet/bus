@@ -1,5 +1,5 @@
 // Upright truncated 40-degree cone: full steering at zero or full speed.
-export const cone = { width:220, height:320, bottom:260, top:40, center:110, half:24, radians:Math.PI/9 };
+export const cone = { width:220, height:320, bottom:260, top:260-220*2/3, center:110, half:16, radians:Math.PI/9 };
 export function coneInput(px, py) {
   const vertical=Math.max(cone.top,Math.min(cone.bottom,py));
   const travel=cone.bottom-vertical;

@@ -3,7 +3,7 @@ import {spawn} from 'node:child_process';
 export function rtspArguments({host,rtspPort=8554}) {
   return ['-hide_banner','-loglevel','warning','-nostdin',
     '-rtsp_transport','udp','-timeout','5000000','-fflags','nobuffer',
-    '-analyzeduration','100000','-probesize','32768','-max_delay','100000',
+    '-analyzeduration','100000','-probesize','32768','-max_delay','0','-reorder_queue_size','0',
     '-i',`rtsp://${host}:${rtspPort}/mjpeg/1`,'-map','0:v:0','-an','-sn','-dn',
     '-c:v','copy','-flush_packets','1','-f','mpjpeg','pipe:1'];
 }

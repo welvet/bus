@@ -2,7 +2,7 @@ import { cone, coneInput, conePosition } from './cone.js';
 const $=id=>document.getElementById(id);
 const landscape=matchMedia('(orientation: landscape)');
 const keys=new Set();
-let lightsBusy=false,fitVideo=false;
+let lightsBusy=false;
 let wanted=false,ready=false,suspended=false,touching=false;
 let lease=null,sequence=0,generation=0,busy=false,state=null,retryAt=0,nextReadAt=0;
 let pointer=null,lastPointer=null,pressPoint=null,sliding=false,reverse=false,x=0,y=0;
@@ -183,10 +183,6 @@ function updateVideo(reconnect=false) {
   }
 }
 $('reloadVideo').onclick=()=>updateVideo(true);
-$('fitVideo').onclick=()=>{
- fitVideo=!fitVideo;$('console').classList.toggle('fit-video',fitVideo);
- $('fitVideo').setAttribute('aria-pressed',String(fitVideo));
- $('fitVideo').setAttribute('aria-label',fitVideo?'Fill screen with camera':'Show full camera frame');
-};
+
 updateVideo();
 paint(); setInterval(cycle,10); cycle();

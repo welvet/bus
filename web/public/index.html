@@ -12,18 +12,17 @@
 <section class="camera-stage" aria-label="Live camera"><div class="video"><span id="videoHint" class="sr-only" role="status">Connecting to camera…</span><img id="camera" alt="Live view from the bus camera" draggable="false"></div><div class="vignette"></div></section>
 <div class="hud-top">
 <div class="tools">
-<label class="icon-toggle lights-control" title="Headlights"><input id="lights" type="checkbox" role="switch" aria-label="Headlights"><span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 5c5 0 7 3 7 7s-2 7-7 7V5ZM3 6l6 2M2 11h7M3 16l6-2M4 21l5-3"/></svg></span></label>
 <button class="icon-button" id="reloadVideo" aria-label="Reconnect camera" title="Reconnect camera"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8a8 8 0 1 0 1 7M19 3v6h-6"/></svg></button>
-<button class="icon-button" id="fitVideo" aria-label="Show full camera frame" aria-pressed="false" title="Fit / fill camera"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5"/></svg></button>
 </div>
 <label class="icon-toggle take" title="Take / release control"><input id="control" type="checkbox" role="switch" aria-label="Take control"><span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9m-5-7a8 8 0 1 0 10 0"/></svg></span></label>
 </div>
 <div class="error-anchor"><div id="error" role="alert" aria-live="polite" hidden></div></div>
 <div class="connection sr-only"><i id="connectionDot"></i><span id="status" role="status">Connecting</span></div>
 <div class="telemetry sr-only" aria-label="Driving telemetry"><div class="speed"><output id="speedValue">0%</output><span>POWER</span><div class="power-track"><i id="powerBar"></i></div></div><div class="steering"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="m5 8 5 3m4 0 5-3m-7 6v6"/></svg><output id="angleValue">0°</output></div></div>
+<label class="reverse-control lights-control" title="Headlights"><input id="lights" type="checkbox" role="switch" aria-label="Headlights"><span class="reverse-pill"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 5c5 0 7 3 7 7s-2 7-7 7V5ZM3 6l6 2M2 11h7M3 16l6-2M4 21l5-3"/></svg></span></label>
 <label class="reverse-control" title="Reverse"><input id="reverse" type="checkbox" role="switch" aria-label="Reverse"><span class="reverse-pill"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16m-6-6 6 6 6-6"/></svg><span>R</span></span></label>
 <section class="drive-overlay" aria-label="Driving control">
 <span id="driveState" class="sr-only" role="status">Slide to take control</span>
-<div id="joystick" aria-label="Drag up for speed; left or right to steer"><svg viewBox="0 0 220 320" aria-hidden="true"><defs><linearGradient id="coneGlow" x1="0" y1="1" x2="0" y2="0"><stop stop-color="#c7eea4" stop-opacity=".03"/><stop offset="1" stop-color="#c7eea4" stop-opacity=".18"/></linearGradient></defs><polygon points="86,260 5.93,40 214.07,40 134,260" class="cone-area"/><circle id="thumbHalo" cx="110" cy="260" r="31"/><circle id="thumb" cx="110" cy="260" r="22"/><circle id="thumbCenter" cx="110" cy="260" r="4"/></svg></div>
+<div id="joystick" aria-label="Drag up for speed; left or right to steer"><svg viewBox="0 0 220 320" aria-hidden="true"><defs><linearGradient id="coneGlow" x1="0" y1="1" x2="0" y2="0"><stop stop-color="#c7eea4" stop-opacity=".03"/><stop offset="1" stop-color="#c7eea4" stop-opacity=".18"/></linearGradient></defs><polygon points="94,260 40.62,113.333333 179.38,113.333333 126,260" class="cone-area"/><circle id="thumbHalo" cx="110" cy="260" r="31"/><circle id="thumb" cx="110" cy="260" r="22"/><circle id="thumbCenter" cx="110" cy="260" r="4"/></svg></div>
 </section>
 </main><div class="orientation-hint" aria-label="Hold phone upright"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="14" y="5" width="20" height="38" rx="5"/><path d="M22 37h4"/></svg></div><script type="module" src="/app.js"></script></body></html>
