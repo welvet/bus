@@ -239,3 +239,22 @@ changes to the latest desired value. Repeated off is safe with fresh counters.
 The UI shows requested state ahead of delayed physical feedback (`lights.on`);
 delivery errors appear in the fixed error overlay. Pending means delivery to
 the camera, not confirmation of physical illumination.
+
+### iPhone console
+
+The console is portrait-only, edge-to-edge, with safe-area spacing for controls.
+Landscape pauses motion and video. Add to Home Screen from Safari to launch
+without browser chrome. The standalone manifest requests portrait orientation;
+iOS browser tabs still follow system rotation. Telemetry stays accessible but
+visually hidden, and errors stay in a fixed overlay above the controls.
+
+Transient UDP acknowledgement loss stops/disarms motion and resets acceleration
+without revoking the lease. Fresh neutral is required; the browser discards held
+input on the reported stop. A failed status request is tolerated while the last
+status is under four seconds old. Stale status and actual session/epoch changes
+still revoke ownership. Lease errors include the preceding reset reason.
+
+Acceleration ramp is disabled by default (`BUS_ACCELERATION_MS=0`): the next
+50 ms output tick sends the mapped desired speed immediately. The 30% minimum,
+input response mapping, steering limits, neutral interlock and expiry remain.
+A positive BUS_ACCELERATION_MS can re-enable the optional time ramp.

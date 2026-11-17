@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {MotionPolicy} from './motion-policy.mjs';
 export const SEND_INTERVAL_MS=50;
 
-export function createControlService({getStatus,newSession,send,now=()=>performance.now(),riseMs=1000,autoStart=true}) {
+export function createControlService({getStatus,newSession,send,now=()=>performance.now(),riseMs=0,autoStart=true}) {
  const motion=new MotionPolicy({riseMs});
  let lease=null,sequence=-1,session=0,counter=0,epoch=0,camera=null,statusAt=-Infinity;
  let deadline=0,armed=false,error=null,settingUp=false,polling=false,lastPoll=-Infinity,lastAuto=-Infinity;
@@ -15,7 +15,7 @@ export function createControlService({getStatus,newSession,send,now=()=>performa
    if(session&&!stopped){stopped=true;const packet=wire('stop');send(packet).catch(()=>{});}
  }
  function disconnect(reason) {
-   console.warn(`[bus] control reset: ${reason}`);
+   console.warn(`[bus] ${new Date().toISOString()} control reset: ${reason}`);
    stop(reason);version++;lease=null;session=0;counter=0;epoch=0;
    camera=null;statusAt=-Infinity;lastAckCounter=0;lastAckAt=-Infinity;
    settingUp=false;polling=false;lightsRequested=null;lightsRevision++;lightsPending=false;lightsError=null;
@@ -33,7 +33,7 @@ export function createControlService({getStatus,newSession,send,now=()=>performa
      const newerAck=(lastAckCounter-packet.counter)>>>0;
      // UDP can lose an older datagram while later commands succeed.
      if(newerAck&&newerAck<0x80000000&&now()-lastAckAt<450)return;
-     disconnect(e.message);
+     stop(e.message);
    }).finally(()=>pending--);
  }
  async function setup(token) {
@@ -61,7 +61,13 @@ export function createControlService({getStatus,newSession,send,now=()=>performa
      if(observed.session!==session||observed.epoch!==epoch) {disconnect('Bus connection changed; slide to take control again');return;}
      if(!valid())disconnect(observed.mode==='manual'?'Xbox has control':'No recent Renesas UART feedback');
      else if(!wasValid){stop();error=null;}
-   }catch(e){if(token===version)disconnect(e.message);}
+   }catch(e){
+     if(token===version){
+       // One slow HTTP poll does not invalidate an otherwise healthy UDP link.
+       if(lease&&now()-statusAt>=4000)disconnect(e.message);
+       else if(!lease){camera=null;statusAt=-Infinity;}
+     }
+   }
    finally{if(token===version)polling=false;}
  }
  function tick() {
@@ -88,7 +94,7 @@ export function createControlService({getStatus,newSession,send,now=()=>performa
    setup(version);return {lease,...status()};
  }
  function input(body) {
-   if(!lease||body.lease!==lease)throw Object.assign(Error('control lease changed'),{status:409});
+   if(!lease||body.lease!==lease)throw Object.assign(Error(`control lease changed${error?': '+error:''}`),{status:409});
    if(!Number.isSafeInteger(body.sequence)||body.sequence<=sequence)throw Object.assign(Error('old-sequence'),{status:409});
    const finite=v=>typeof v==='number'&&Number.isFinite(v)&&v>=-1&&v<=1;
    if(!finite(body.steering)||!finite(body.throttle)||!Number.isInteger(body.duration_ms)||body.duration_ms<1||body.duration_ms>1000)throw Object.assign(Error('steering/throttle must be -1..1; duration_ms 1..1000'),{status:400});
@@ -144,7 +150,7 @@ export function createControlService({getStatus,newSession,send,now=()=>performa
    }
  }
  function release(body){
-   if(body.lease!==lease)throw Object.assign(Error('control lease changed'),{status:409});
+   if(body.lease!==lease)throw Object.assign(Error(`control lease changed${error?': '+error:''}`),{status:409});
    if(!Number.isSafeInteger(body.sequence)||body.sequence<=sequence)throw Object.assign(Error('old-sequence'),{status:409});
    sequence=body.sequence;stop();lease=null;version++;return status();
  }

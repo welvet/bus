@@ -11,8 +11,8 @@ export function desiredMotion(steering,throttle) {
   return {angle,speed};
 }
 export class MotionPolicy {
-  constructor({riseMs=1000}={}) {
-    if(!Number.isFinite(riseMs)||riseMs<=0)throw Error('riseMs must be positive');
+  constructor({riseMs=0}={}) {
+    if(!Number.isFinite(riseMs)||riseMs<0)throw Error('riseMs must be nonnegative');
     this.riseMs=riseMs;this.reset(0);
   }
   reset(now) {this.desired=0;this.allowed=0;this.real=0;this.angle=0;this.at=now;}
@@ -26,11 +26,13 @@ export class MotionPolicy {
       this.real=Math.sign(target.speed)*Math.min(Math.abs(target.speed),this.allowed)||0;
     }
     this.desired=target.speed;this.angle=target.angle;this.at=now;
+    if(this.riseMs===0){this.allowed=Math.abs(this.desired);this.real=this.desired;}
   }
   step(now) {
     // No catch-up burst after an event-loop stall; device commands expire in 200 ms.
     const dt=Math.max(0,now-this.at);
-    if(dt>200)this.allowed=0;
+    if(this.riseMs===0)this.allowed=Math.abs(this.desired);
+    else if(dt>200)this.allowed=0;
     else this.allowed=Math.min(Math.abs(this.desired),this.allowed+100*dt/this.riseMs);
     this.real=Math.sign(this.desired)*Math.min(Math.abs(this.desired),this.allowed)||0;
     this.at=now;

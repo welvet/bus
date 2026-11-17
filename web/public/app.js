@@ -6,7 +6,7 @@ let lightsBusy=false,fitVideo=false;
 let wanted=false,ready=false,suspended=false,touching=false;
 let lease=null,sequence=0,generation=0,busy=false,state=null,retryAt=0,nextReadAt=0;
 let pointer=null,lastPointer=null,pressPoint=null,sliding=false,reverse=false,x=0,y=0;
-const active=()=>wanted&&!document.hidden&&!suspended;
+const active=()=>wanted&&!landscape.matches&&!document.hidden&&!suspended;
 const message=text=>{$('error').textContent=text;$('error').hidden=!text;};
 async function json(path,options={}) {
  try{
@@ -40,7 +40,9 @@ function immediate(neutral){
  if(!neutral)lease=null;
 }
 function pause(){generation++;resetInput();immediate(false);ready=false;paint();}
-function fault(error){resetInput();ready=false;retryAt=Date.now()+1000;message(error.message);paint();}
+function fault(error){
+ if(error.message.toLowerCase().includes('lease changed')){lease=null;wanted=false;$('control').checked=false;}
+ resetInput();ready=false;retryAt=Date.now()+1000;message(error.message);paint();}
 async function cycle(){
  if(busy||document.hidden||Date.now()<retryAt)return;
  busy=true;const token=generation;
@@ -80,7 +82,7 @@ async function cycle(){
   if(token!==generation)return;
   if(responseSequence===sequence)state=result;
   if(state.lease!==lease){lease=null;wanted=false;$('control').checked=false;resetInput();ready=false;message(state.error||'Connection reset. Slide to take control.');paint();return;}
-  if(!state.ready){resetInput();ready=false;}
+  if(!state.ready||(!state.armed&&state.error)){resetInput();ready=state.ready;}
   if(state.error||state.lights?.error)message(state.error||state.lights.error);else message('');
   if(lastPointer&&touching)movePointer(lastPointer);
   paint();
@@ -88,7 +90,7 @@ async function cycle(){
  finally{busy=false;}
 }
 function movePointer(event) {
-  if (event.pointerId !== pointer || !touching || document.hidden || suspended) return;
+  if (event.pointerId !== pointer || !touching || landscape.matches || document.hidden || suspended) return;
   if (!sliding) {
     if (!pressPoint || Math.hypot(event.clientX-pressPoint.x,event.clientY-pressPoint.y)<4) return;
     sliding=true;
@@ -109,7 +111,7 @@ function movePointer(event) {
   x=input.steering; y=input.throttle*(reverse?-1:1); paint();
 }
 $('joystick').addEventListener('pointerdown',event=>{
-  if (document.hidden || suspended || pointer !== null) return;
+  if (landscape.matches || document.hidden || suspended || pointer !== null) return;
   event.preventDefault();
   pointer=event.pointerId; touching=true; sliding=false; keys.clear();
   pressPoint={x:event.clientX,y:event.clientY};
@@ -173,7 +175,7 @@ $('camera').onerror=()=>{
 function updateVideo(reconnect=false) {
   clearTimeout(videoRetry);
   const image=$('camera');
-  if(document.hidden) {
+  if(document.hidden || landscape.matches) {
     image.removeAttribute('src'); $('videoHint').textContent='Camera paused';
   } else if(reconnect || !image.getAttribute('src')) {
     $('videoHint').textContent='Connecting to camera…';

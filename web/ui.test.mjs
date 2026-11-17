@@ -6,7 +6,7 @@ import {cone,coneInput,conePosition} from './public/cone.js';
 function harness(){
  const elements=new Map(),events={},handlers={},timers=[],requests=[],beacons=[],reads=[];
  const element=id=>elements.get(id)||elements.set(id,{checked:false,hidden:false,style:{},classList:{toggle(){}},setAttribute(){},getAttribute(){return this.src;},removeAttribute(){delete this.src;},setPointerCapture(){},addEventListener(n,f){handlers[n]=f;},getBoundingClientRect:()=>({left:0,top:0,width:220,height:320})}).get(id);
- const orientation={matches:true,addEventListener(n,f){events.orientation=f;}};
+ const orientation={matches:false,addEventListener(n,f){events.orientation=f;}};
  const state={lights:{on:false,requested:false,supported:true},lease:null,ready:false,armed:false,camera:{mode:'auto'},angle:0,output_speed:0,error:null};let time=10000,delay=false,resolveInput,neutralRequired=false;
  const document={hidden:false,getElementById:element,addEventListener(n,f){events[n]=f;}};
  const context=vm.createContext({cone,coneInput,conePosition,document,matchMedia:()=>orientation,window:{addEventListener(n,f){events[n]=f;}},navigator:{sendBeacon(path,data){beacons.push({path,data});return true;}},Blob,AbortSignal,setTimeout,clearTimeout,Date:{now:()=>time},setInterval(fn){timers.push(fn);},fetch:async(path,options={})=>{
@@ -92,4 +92,14 @@ test('lost backend lease clears held gesture and requires a new slide',async()=>
  h.down(2);h.move(0,1,2);await h.settle();
  const inputs=h.requests.slice(before).filter(r=>r.path==='/api/control/input');
  assert.equal(inputs[0].throttle,0);assert.equal(inputs.at(-1).throttle,1);
+});
+
+test('landscape stops control and hides video until portrait returns',async()=>{
+ const h=harness();await h.flush();h.down();h.move(0,1);await h.settle();
+ h.orientation.matches=true;h.events.orientation();await h.settle();
+ assert.equal(h.beacons.at(-1).path,'/api/control/release');assert.equal(h.element('camera').src,undefined);
+ const before=h.requests.length;h.down(2);h.move(0,1,2);await h.settle();
+ assert.ok(!h.requests.slice(before).some(r=>r.path==='/api/control/acquire'));
+ h.orientation.matches=false;h.events.orientation();await h.settle();
+ assert.ok(h.element('camera').src);assert.equal(h.requests.at(-1).throttle,0);
 });

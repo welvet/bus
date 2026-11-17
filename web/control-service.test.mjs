@@ -4,7 +4,7 @@ import {createControlService} from './control-service.mjs';
 const flush=()=>new Promise(r=>setImmediate(r));
 async function setup(){
  let time=1000;const packets=[],camera={session:7,epoch:1,mode:'auto',renesas_age_ms:10};
- const service=createControlService({now:()=>time,autoStart:false,getStatus:async()=>({...camera}),newSession:async()=>({session:7}),send:async packet=>{packets.push(packet);return {accepted:true,counter:packet.counter};}});
+ const service=createControlService({riseMs:1000,now:()=>time,autoStart:false,getStatus:async()=>({...camera}),newSession:async()=>({session:7}),send:async packet=>{packets.push(packet);return {accepted:true,counter:packet.counter};}});
  const acquired=service.acquire();await flush();let sequence=0;
  const input=(throttle,steering=0)=>service.input({lease:acquired.lease,sequence:++sequence,throttle,steering,duration_ms:300});
  return {service,camera,packets,acquired,input,async tick(ms=50){time+=ms;service.tick();await flush();},now:()=>time};
@@ -37,7 +37,7 @@ test('invalid normalized intent cannot issue actuator commands',async t=>{
 });
 
 test('expired input cannot rearm with movement even if the timer has not run',async t=>{
- let time=1000;const s=createControlService({now:()=>time,autoStart:false,getStatus:async()=>({session:9,epoch:1,mode:'auto',renesas_age_ms:1}),newSession:async()=>({session:9}),send:async p=>({accepted:true,counter:p.counter})});
+ let time=1000;const s=createControlService({riseMs:1000,now:()=>time,autoStart:false,getStatus:async()=>({session:9,epoch:1,mode:'auto',renesas_age_ms:1}),newSession:async()=>({session:9}),send:async p=>({accepted:true,counter:p.counter})});
  t.after(()=>s.close());const {lease}=s.acquire();await flush();
  s.input({lease,sequence:1,steering:0,throttle:0,duration_ms:100});
  time+=101;
@@ -47,7 +47,7 @@ test('expired input cannot rearm with movement even if the timer has not run',as
 
 test('fast input only replaces intent; each independent pump tick sends once without waiting for ACK',async t=>{
  let time=1000;const packets=[],acks=[];
- const service=createControlService({now:()=>time,autoStart:false,getStatus:async()=>({session:9,epoch:1,mode:'auto',renesas_age_ms:1}),newSession:async()=>({session:9}),send:p=>{
+ const service=createControlService({riseMs:1000,now:()=>time,autoStart:false,getStatus:async()=>({session:9,epoch:1,mode:'auto',renesas_age_ms:1}),newSession:async()=>({session:9}),send:p=>{
   packets.push(p);if(p.op!=='drive')return Promise.resolve({accepted:true,counter:p.counter});
   return new Promise(resolve=>acks.push(()=>resolve({accepted:true,counter:p.counter})));
  }});t.after(()=>{for(const ack of acks)ack();service.close();});
@@ -64,7 +64,7 @@ test('fast input only replaces intent; each independent pump tick sends once wit
 
 test('lost older UDP acknowledgment cannot reset acceleration after a newer command succeeds',async t=>{
  let time=1000;const pending=[];
- const service=createControlService({now:()=>time,autoStart:false,getStatus:async()=>({session:9,epoch:1,mode:'auto',renesas_age_ms:1}),newSession:async()=>({session:9}),send:p=>p.op==='drive'?new Promise((resolve,reject)=>pending.push({p,resolve,reject})):Promise.resolve({accepted:true,counter:p.counter})});
+ const service=createControlService({riseMs:1000,now:()=>time,autoStart:false,getStatus:async()=>({session:9,epoch:1,mode:'auto',renesas_age_ms:1}),newSession:async()=>({session:9}),send:p=>p.op==='drive'?new Promise((resolve,reject)=>pending.push({p,resolve,reject})):Promise.resolve({accepted:true,counter:p.counter})});
  t.after(()=>{for(const p of pending)p.resolve({accepted:true,counter:p.p.counter});service.close();});
  const {lease}=service.acquire();await flush();
  service.input({lease,sequence:1,steering:0,throttle:0,duration_ms:300});service.input({lease,sequence:2,steering:0,throttle:1,duration_ms:300});
@@ -87,11 +87,11 @@ test('headlights work without acquiring motion, and old firmware is rejected',as
 
 test('power outage clears lease and ramp; reconnect never replays intent',async t=>{
  let time=1000,online=true,session=7;const packets=[];
- const service=createControlService({now:()=>time,autoStart:false,getStatus:async()=>{if(!online)throw Error('offline');return {session,epoch:1,mode:'auto',renesas_age_ms:1};},newSession:async()=>({session:++session}),send:async p=>{packets.push(p);return {accepted:true,counter:p.counter};}});
+ const service=createControlService({riseMs:1000,now:()=>time,autoStart:false,getStatus:async()=>{if(!online)throw Error('offline');return {session,epoch:1,mode:'auto',renesas_age_ms:1};},newSession:async()=>({session:++session}),send:async p=>{packets.push(p);return {accepted:true,counter:p.counter};}});
  t.after(()=>service.close());let {lease}=service.acquire();await flush();
  service.input({lease,sequence:1,throttle:0,steering:0,duration_ms:300});
  service.input({lease,sequence:2,throttle:1,steering:1,duration_ms:300});time+=50;service.tick();await flush();
- online=false;time+=800;await service.refresh();
+ online=false;time+=4001;await service.refresh();
  assert.equal(service.status().lease,null);assert.equal(service.status().real_speed,0);assert.equal(service.status().angle,0);
  online=true;time+=5000;await service.refresh();service.tick();
  assert.equal(service.status().lease,null);assert.equal(service.status().armed,false);
@@ -108,7 +108,7 @@ test('camera session or epoch change invalidates ownership',async t=>{
  }
 });
 test('late failure from old connection cannot stop a newly acquired lease',async t=>{
- let time=1000,rejectOld;const service=createControlService({now:()=>time,autoStart:false,getStatus:async()=>({session:7,epoch:1,mode:'auto',renesas_age_ms:1}),newSession:async()=>({session:7}),send:p=>p.op==='drive'?new Promise((_,reject)=>{rejectOld=reject;}):Promise.resolve({accepted:true,counter:p.counter})});
+ let time=1000,rejectOld;const service=createControlService({riseMs:1000,now:()=>time,autoStart:false,getStatus:async()=>({session:7,epoch:1,mode:'auto',renesas_age_ms:1}),newSession:async()=>({session:7}),send:p=>p.op==='drive'?new Promise((_,reject)=>{rejectOld=reject;}):Promise.resolve({accepted:true,counter:p.counter})});
  t.after(()=>service.close());let {lease}=service.acquire();await flush();
  service.input({lease,sequence:1,throttle:0,steering:0,duration_ms:300});time+=50;service.tick();
  ({lease}=service.acquire());await flush();rejectOld(Error('old timeout'));await flush();
@@ -126,4 +126,20 @@ test('light intent responds immediately and serializes latest absolute setting',
  assert.deepEqual(packets.map(p=>p.counter),[11,12]);
  assert.equal(service.status().lights.requested,false);assert.equal(service.status().lights.pending,false);assert.equal(service.status().lights.error,null);
  assert.ok(packets.every(p=>p.op==='lights'));
+});
+
+test('a lost latest UDP ack stops motion without invalidating ownership',async t=>{
+ let time=1000,rejectDrive;const s=createControlService({riseMs:1000,now:()=>time,autoStart:false,getStatus:async()=>({session:7,epoch:1,mode:'auto',renesas_age_ms:1}),newSession:async()=>({session:7}),send:p=>p.op==='drive'?new Promise((_,reject)=>{rejectDrive=reject;}):Promise.resolve({accepted:true,counter:p.counter})});
+ t.after(()=>s.close());const {lease}=s.acquire();await flush();
+ s.input({lease,sequence:1,steering:0,throttle:0,duration_ms:300});
+ s.input({lease,sequence:2,steering:0,throttle:1,duration_ms:300});time+=50;s.tick();
+ rejectDrive(Error('Camera UDP acknowledgment timed out'));await flush();
+ assert.equal(s.status().lease,lease);assert.equal(s.status().armed,false);assert.equal(s.status().real_speed,0);
+ assert.throws(()=>s.input({lease,sequence:3,steering:0,throttle:1,duration_ms:300}),/neutral required/);
+});
+test('one failed HTTP poll keeps a fresh camera state; sustained outage revokes lease',async t=>{
+ let time=1000,online=true;const s=createControlService({riseMs:1000,now:()=>time,autoStart:false,getStatus:async()=>{if(!online)throw Error('HTTP delayed');return {session:7,epoch:1,mode:'auto',renesas_age_ms:1};},newSession:async()=>({session:7}),send:async p=>({accepted:true,counter:p.counter})});
+ t.after(()=>s.close());const {lease}=s.acquire();await flush();online=false;
+ time+=801;await s.refresh();assert.equal(s.status().lease,lease);assert.equal(s.status().ready,true);
+ time+=4000;await s.refresh();assert.equal(s.status().lease,null);assert.equal(s.status().armed,false);
 });
